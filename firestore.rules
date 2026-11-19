@@ -33,8 +33,7 @@ service cloud.firestore {
           'd4s0','d4s1','d4s2','d4s3','d4s4','d4s5',
           'd5s0','d5s1','d5s2','d5s3','d5s4','d5s5'
         ]) &&
-        request.resource.data.slots.size() <= 36 &&
-        request.resource.data.slots.values().hasOnly(['both', 'online']);
+        request.resource.data.slots.size() <= 36;
     }
     match /nov2026_schedules/{id} {
       allow get, list: if member();
