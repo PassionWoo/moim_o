@@ -126,3 +126,15 @@ input{width:100%}
  .saved-room-open strong{font-size:20px}
 }
 @media(max-width:370px){.pin-input{width:105px!important;flex-basis:105px!important}.member-row input{font-size:16px}}
+
+/* Team leader's Cloudflare account and one-click shared invite */
+.auth-modes{display:flex;gap:10px;margin-bottom:28px}
+.auth-modes button{flex:1}
+.auth-modes .selected{border-color:#20242a;background:#f4f5f6}
+.saved-room{flex-wrap:wrap}
+.saved-room .copy-meeting{font-size:16px;max-width:100%}
+@media(max-width:800px){
+ .saved-room .saved-room-open{flex-basis:100%}
+ .saved-room .copy-meeting{flex:1}
+ .room-head #copy-current{font-size:15px;white-space:normal;max-width:160px}
+}
