@@ -173,7 +173,23 @@ export default {
         if(!username)return json({error:"아이디를 확인하세요."},400,cors);
         const stub=accountStub(env,"acct:"+username);
         const result=await internalRequest(stub,"account/admin-status");
-        if(result.ok)await internalRequest(catalogStub(env),"catalog/account-add",{username});
+        if(!result.ok)return corsResponse(result,cors);
+        await internalRequest(catalogStub(env),"catalog/account-add",{username});
+        const summary=await internalRequest(stub,"account/admin-summary");
+        if(summary.ok){
+          const info=await summary.json();
+          for(const row of info.rooms){
+            if(!row.roomId)continue;
+            const entry=await internalRequest(env.ROOMS.get(env.ROOMS.idFromName(row.roomId)),"admin/room",{roomId:row.roomId});
+            if(!entry.ok)continue;
+            const detail=await entry.json();
+            await internalRequest(catalogStub(env),"catalog/room-add",{
+              roomId:row.roomId,owner:username,title:detail.title,
+              startDate:detail.startDate,endDate:detail.endDate,
+              expiresAt:detail.expiresAt,participantCount:detail.participants.length
+            });
+          }
+        }
         return corsResponse(result,cors);
       }
       if(url.pathname==="/api/admin/account/reset-code"&&request.method==="POST"){
@@ -445,6 +461,15 @@ export class Room extends DurableObject {
       if(!username)return fail("잘못된 계정");
       this.sql.exec("DELETE FROM catalog_accounts WHERE username=?",username);
       return json({ok:true});
+    }
+    if(path==="/account/admin-summary"&&request.method==="GET"){
+      const user=[...this.sql.exec("SELECT username FROM accounts LIMIT 1")][0];
+      if(!user)return fail("계정을 찾을 수 없습니다.",404);
+      const rooms=[...this.sql.exec("SELECT details FROM user_rooms")].map(x=>{
+        const d=JSON.parse(x.details);
+        return {roomId:d.roomId,title:d.title,expiresAt:d.expiresAt};
+      });
+      return json({username:user.username,rooms});
     }
     if(path==="/account/admin-status"&&request.method==="GET"){
       const row=[...this.sql.exec("SELECT username,created_at FROM accounts LIMIT 1")][0];
