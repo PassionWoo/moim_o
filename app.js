@@ -80,18 +80,19 @@ function setupTimes(){
  from.value="06:00";to.value="24:00";
 }
 function configFromForm(){
- const title=$("title").value.trim(),participants=names.map(p=>({name:p.name.trim(),pin:p.pin}));
+ const title=$("title").value.trim(),ownerName=$("owner-participant-name").value.trim(),participants=names.map(p=>({name:p.name.trim(),pin:p.pin}));
  const value=Number($("unit").value),unitMinutes=$("unit-type").value==="hours"?value*60:value;
  const startTime=$("time-from").value,endTime=$("time-to").value;
  if(!title){error("모임 이름을 입력하세요.");return null}
- if(participants.some(p=>!p.name||!/^\d{4}$/.test(p.pin))||new Set(participants.map(p=>p.name)).size!==participants.length){error("참석자 이름과 번호 4자리를 확인하세요.");return null}
+ if(!ownerName || ownerName.length>30){error("팀장 본인의 이름을 입력하세요.");return null}
+ if(participants.some(p=>!p.name||!/^\d{4}$/.test(p.pin))||new Set([ownerName,...participants.map(p=>p.name)]).size!==participants.length+1){error("팀장과 다른 참석자의 이름은 중복되지 않아야 하며, 전화번호 끝 4자리를 정확히 입력해야 합니다.");return null}
  if(!rangeStart||!rangeEnd){error("시작 날짜와 종료 날짜를 선택하세요.");return null}
  const dayCount=Math.round((fromISO(rangeEnd)-fromISO(rangeStart))/86400000)+1;
  if(dayCount>31){error("날짜는 최대 31일까지 선택할 수 있습니다.");return null}
  if(!Number.isInteger(unitMinutes)||unitMinutes<5||unitMinutes>720){error("시간 단위를 5분~12시간 사이로 입력하세요.");return null}
  const duration=toMin(endTime)-toMin(startTime);
  if(duration<=0||Math.ceil(duration/unitMinutes)>96||dayCount*Math.ceil(duration/unitMinutes)>1500){error("하루 시간 범위를 확인하세요.");return null}
- return {title,participants,startDate:rangeStart,endDate:rangeEnd,unitMinutes,startTime,endTime};
+ return {title,ownerName,participants,startDate:rangeStart,endDate:rangeEnd,unitMinutes,startTime,endTime};
 }
 async function request(path,{method="GET",data=null,key=secret,owner=false}={}){
  if(!API)throw Error("서버 연결 설정이 필요합니다.");
@@ -183,7 +184,7 @@ $("join-submit").addEventListener("click",async()=>{
  try{
   const answer=await request("/api/rooms/"+roomId+"/join",{method:"POST",data:{name,pin},key:null});
   secret=answer.token;
-  localStorage.setItem("moimo-session-"+roomId,JSON.stringify({token:answer.token,expiresAt:answer.expiresAt}));
+  // Participant authentication is intentionally not persisted between visits.
   await openRoom();
  }catch(e){$("join-error").textContent=e.message}finally{button.disabled=false}
 });
@@ -370,7 +371,7 @@ $("room-delete").addEventListener("click",()=>deleteManagedRoom({roomId,title:ro
 const clone=o=>JSON.parse(JSON.stringify(o));
 function slotLabel(min){const h=Math.floor(min/60),m=min%60;return `${pad(h)}:${pad(m)}`}
 function getSlotCount(){return Math.ceil((toMin(room.config.endTime)-toMin(room.config.startTime))/room.config.unitMinutes)}
-function allowedToEdit(){return room?.role==="participant"&&selected===room.participantId}
+function allowedToEdit(){return !!room?.participantId && (room.role==="participant" || room.role==="manager") && selected===room.participantId}
 function renderTabs(){
  const nav=$("tabs");nav.replaceChildren();
  for(const m of room.participants){
@@ -474,7 +475,7 @@ function websocket(){
     const data=JSON.parse(e.data);
     if(data.type==="snapshot"){
      room=data.data;
-     if(!selected)selected=room.role==="participant"?room.participantId:"dashboard";
+     if(!selected)selected=room.participantId || "dashboard";
      renderRoom();$("status").textContent="연결됨";
     }else if(data.type==="update"&&room){
      const p=room.participants.find(p=>p.id===data.participantId);
@@ -508,12 +509,8 @@ async function setup(){
     roomId=r;secret=k;
     await openRoom();
   }else{
-    const session=JSON.parse(localStorage.getItem("moimo-session-"+r)||"null");
-    if(session?.token && session.expiresAt>Date.now()){
-      roomId=r;secret=session.token;
-      try{room=await request("/api/rooms/"+r);await openRoom();return}
-      catch{localStorage.removeItem("moimo-session-"+r)}
-    }
+    // Even after refreshing the same shared link, always require name and PIN.
+    localStorage.removeItem("moimo-session-"+r);
     await showJoin(r);
   }
  }
