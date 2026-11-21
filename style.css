@@ -138,3 +138,24 @@ input{width:100%}
  .saved-room .copy-meeting{flex:1}
  .room-head #copy-current{font-size:15px;white-space:normal;max-width:160px}
 }
+
+/* Service administrator and account recovery */
+.admin-view{max-width:1050px;margin:auto}
+.admin-view h2{margin:28px 0 14px}
+.admin-view .saved-room{flex-wrap:wrap;align-items:center}
+.admin-row-info{display:flex;flex-direction:column;gap:4px;flex:1;min-width:200px;overflow-wrap:anywhere}
+.admin-row-info strong{font-size:20px}
+.admin-row-info span{font-size:15px;color:#687079}
+.admin-stats{font-size:23px;font-weight:800;border-bottom:1px solid var(--line);padding:18px 0;margin:12px 0}
+#admin-dashboard{margin:25px 0}
+#admin-inspection{border-top:1px solid var(--line);margin:20px 0;padding-top:20px}
+#admin-inspection p{margin:7px 0}
+.account-recovery-entry{margin-top:20px;text-align:center}
+#owner-account{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
+#owner-info{flex-wrap:wrap}
+.retention-note{color:#747b83;font-size:16px}
+@media(max-width:800px){
+ .admin-view .saved-room>button{flex:1;font-size:15px}
+ .admin-view .input-row{flex-wrap:wrap}
+ #admin-lookup{width:100%}
+}
