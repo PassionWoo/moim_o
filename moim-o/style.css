@@ -1,0 +1,101 @@
+:root{--ink:#20242a;--line:#e1e4e7;--shade:#f4f5f6;--green:#38b971;--yellow:#f5cf4e}
+*{box-sizing:border-box}html{font-size:20px;-webkit-text-size-adjust:100%}
+body{margin:0;background:#fff;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Malgun Gothic","Apple SD Gothic Neo",sans-serif}
+button,input,select{font:inherit}button{cursor:pointer}
+button:disabled{opacity:.25;cursor:default}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #3f7adc;outline-offset:2px}
+.hidden{display:none!important}
+.app{max-width:1250px;margin:auto;padding:18px 22px 60px}
+.header{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);padding:9px 0 21px;margin-bottom:34px}
+.wordmark{font-weight:900;text-decoration:none;color:inherit;font-size:38px;letter-spacing:-1.5px}
+.hero{max-width:450px;margin:16vh auto 0;text-align:center}
+.hero h1{font-size:34px;margin:0 0 35px}
+h1{font-size:33px;line-height:1.25;margin:0 0 26px}
+h2{font-size:27px;margin:0}
+.form{max-width:670px;margin:auto}
+.field{margin:0 0 32px}
+.field>label,.field-head label{font-size:24px;font-weight:800;display:block;margin-bottom:12px}
+.field-head{display:flex;justify-content:space-between;align-items:center}
+.field-head span{font-size:18px;color:#777}
+input,select{min-height:60px;border:2px solid #cbd1d6;background:#fff;padding:10px 14px;border-radius:11px;font-size:24px;min-width:0}
+input{width:100%}
+.member-inputs{display:flex;flex-direction:column;gap:10px}
+.member-row{display:flex;align-items:center;gap:8px}
+.member-row input{flex:1}
+.member-remove{flex:0 0 57px;height:60px;background:white;border:2px solid var(--line);border-radius:11px;font-size:25px}
+.add-member{width:100%;height:60px;border:2px dashed #b4bbc1;background:white;border-radius:12px;margin-top:10px;font-size:33px;color:#515960}
+.input-row{display:flex;gap:12px;align-items:center}
+.input-row input{flex:1;width:60px}
+.input-row select{flex:1}
+.input-row select:last-child{max-width:180px}
+.big-button{width:100%;min-height:72px;border:0;border-radius:12px;background:var(--ink);color:white;font-weight:900;font-size:25px;display:flex;justify-content:center;align-items:center;gap:12px}
+.big-button span{font-size:31px}
+.small-button{background:white;border:2px solid var(--line);padding:11px 15px;border-radius:11px;font-weight:700;font-size:19px;white-space:nowrap}
+.error{color:#ad2525;font-size:17px;min-height:26px;margin:15px 0}
+.calendar-head{display:flex;align-items:center;justify-content:space-between;margin:7px 0 10px}
+.calendar-head button{width:59px;height:56px;border:2px solid var(--line);border-radius:12px;background:#fff;font-size:30px}
+.calendar-head strong{font-size:25px}
+.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}
+.calendar-weekday{text-align:center;font-size:17px;font-weight:800;padding:8px 0;color:#58626a}
+.calendar-day{aspect-ratio:1;min-width:0;min-height:45px;border:0;border-radius:10px;background:var(--shade);font-size:20px;font-weight:700}
+.calendar-day.outside{background:transparent;pointer-events:none}
+.calendar-day.in-range{background:#d3e6dd}
+.calendar-day.endpoint{background:#1b8255;color:white}
+.range-label{min-height:26px;margin-top:10px;font-weight:700;color:#4e6055;text-align:center}
+.room-head{display:flex;justify-content:space-between;align-items:start;gap:15px;margin-bottom:20px}
+.room-head h1{margin-bottom:3px}.subhead{font-size:19px;color:#737a80}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:14px}
+.tab{font-size:20px;font-weight:800;border:2px solid transparent;padding:14px 18px;border-radius:11px;background:var(--shade)}
+.tab.active{border-color:var(--ink);background:white}
+.tab.dashboard{background:#e9efff;color:#174478}
+.tab.dashboard.active{border-color:#174478}
+.tab-head{display:flex;justify-content:space-between;align-items:center;margin:24px 0 16px}
+#status{font-size:17px;color:#707981}
+.brushes{display:flex;gap:10px;margin:14px 0 23px;flex-wrap:wrap}
+.brush{border:2px solid var(--line);background:white;border-radius:12px;min-height:64px;padding:10px 18px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:21px;font-weight:800}
+.brush.selected{border:3px solid var(--ink)}
+.dot{width:25px;height:25px;border-radius:50%;display:inline-block;flex-shrink:0}
+.green{background:var(--green)}.yellow{background:var(--yellow)}
+.legend{display:flex;gap:15px;flex-wrap:wrap;margin:10px 0 20px;font-size:19px}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.day-controls{display:none;align-items:center;justify-content:space-between;margin:15px 0}
+.day-controls strong{font-size:25px}
+.day-controls button{width:60px;height:59px;border:2px solid var(--line);background:white;border-radius:11px;font-size:32px}
+.table-wrap{width:100%;overflow-x:auto}
+.schedule{border-collapse:separate;border-spacing:5px;width:100%;table-layout:fixed}
+.schedule thead th{height:58px;font-size:21px;background:var(--shade);border-radius:9px}
+.schedule thead th:first-child{width:135px;background:white}
+.schedule tbody th{font-size:18px;white-space:nowrap}
+.schedule td{background:var(--shade);border-radius:9px;padding:0;text-align:center;height:79px}
+.slot{width:100%;min-height:79px;border:0;border-radius:9px;background:var(--shade);font-size:33px;font-weight:900;color:#adb4bb;touch-action:none;user-select:none;-webkit-user-select:none;cursor:crosshair}
+.slot.both{background:var(--green);color:white}.slot.online{background:var(--yellow);color:#3b310d}.slot.readonly{cursor:default}
+.dashboard-cell{display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:center;min-height:79px;padding:5px}
+.chip{min-width:42px;min-height:37px;padding:5px 7px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:20px}
+.chip.both{background:#188251;color:white}.chip.online{background:var(--yellow);color:#352c0b}
+.empty{color:#b6bdc3;font-size:27px}
+.share-list{display:flex;flex-direction:column;gap:9px;margin:18px 0 28px}
+.share-row{display:flex;align-items:center;gap:12px;padding:13px 14px;border-radius:11px;background:var(--shade)}
+.share-row strong{font-size:21px;flex:1;overflow-wrap:anywhere}
+.share-row button{border:2px solid var(--line);background:white;border-radius:9px;padding:10px 15px;font-weight:800;white-space:nowrap}
+.manager-panel{border-top:1px solid var(--line);margin-top:36px;padding-top:25px}
+.toast{position:fixed;bottom:30px;left:50%;transform:translateX(-50%);padding:12px 22px;background:#20242a;color:#fff;border-radius:10px;font-weight:700;font-size:19px}
+@media(max-width:800px){
+ .app{padding:14px 12px 50px}
+ .header{margin-bottom:25px}
+ .wordmark{font-size:32px}
+ .hero h1{font-size:31px}
+ h1{font-size:29px}
+ .calendar-day{font-size:18px;min-height:43px}
+ .tabs{gap:6px}.tab{flex:1 1 calc(33.3% - 6px);padding:11px 3px;font-size:18px}
+ .tab.dashboard{flex-basis:100%}
+ .brush{flex:1;min-height:68px;padding:10px 5px;font-size:18px}
+ .brush[data-brush=erase]{flex-basis:100%;min-height:50px}
+ .day-controls{display:flex}
+ .schedule thead th:first-child{width:122px}
+ .schedule tbody th{font-size:18px}
+ .schedule td,.slot{min-height:86px;height:86px}
+ .dashboard-cell{min-height:112px;justify-content:flex-start}
+ .chip{min-width:50px;min-height:39px}
+ .share-row strong{font-size:19px}
+}
+@media(max-width:370px){.calendar-day{font-size:16px}.schedule thead th:first-child{width:110px}}
