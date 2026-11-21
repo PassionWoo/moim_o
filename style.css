@@ -70,7 +70,7 @@ input{width:100%}
 .slot{width:100%;min-height:79px;border:0;border-radius:9px;background:var(--shade);font-size:33px;font-weight:900;color:#adb4bb;touch-action:none;user-select:none;-webkit-user-select:none;cursor:crosshair}
 .slot.both{background:var(--green);color:white}.slot.online{background:var(--yellow);color:#3b310d}.slot.readonly{cursor:default}
 .dashboard-cell{display:flex;flex-wrap:wrap;gap:4px;align-items:center;justify-content:center;min-height:79px;padding:5px}
-.chip{min-width:42px;min-height:37px;padding:5px 7px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:20px}
+.chip{min-width:42px;min-height:37px;padding:5px 7px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-weight:900;font-size:20px;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .chip.both{background:#188251;color:white}.chip.online{background:var(--yellow);color:#352c0b}
 .empty{color:#b6bdc3;font-size:27px}
 .share-list{display:flex;flex-direction:column;gap:9px;margin:18px 0 28px}
