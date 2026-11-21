@@ -40,6 +40,7 @@ export async function loginAccount(username,password,register=false){
  const answer=await response.json().catch(()=>({}));
  if(!response.ok)throw Error(answer.error||"로그인할 수 없습니다.");
  setSession({username:answer.username,session:answer.session});
+ return answer;
 }
 export async function logoutAccount(){
  try{
