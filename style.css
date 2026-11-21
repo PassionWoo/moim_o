@@ -139,7 +139,7 @@ input{width:100%}
  .room-head #copy-current{font-size:15px;white-space:normal;max-width:160px}
 }
 
-/* Service administrator and account recovery */
+/* Service administrator */
 .admin-view{max-width:1050px;margin:auto}
 .admin-view h2{margin:28px 0 14px}
 .admin-view .saved-room{flex-wrap:wrap;align-items:center}
@@ -150,7 +150,6 @@ input{width:100%}
 #admin-dashboard{margin:25px 0}
 #admin-inspection{border-top:1px solid var(--line);margin:20px 0;padding-top:20px}
 #admin-inspection p{margin:7px 0}
-.account-recovery-entry{margin-top:20px;text-align:center}
 #owner-account{display:flex;flex-wrap:wrap;justify-content:center;gap:10px}
 #owner-info{flex-wrap:wrap}
 .retention-note{color:#747b83;font-size:16px}
