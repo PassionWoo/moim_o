@@ -1,4 +1,4 @@
-import {auth, loginAccount, logoutAccount, onAuthStateChanged, ownerHeaders, initializeAuth} from "./auth.js";
+import {auth, loginAccount, logoutAccount, onAuthStateChanged, ownerHeaders, initializeAuth} from "./auth.js?v=20261121-6";
 const $=id=>document.getElementById(id);
 const API=(window.MOIMO_API_URL||"").replace(/\/$/,"");
 const WEEK=["일","월","화","수","목","금","토"];
