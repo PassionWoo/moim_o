@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <title>모이모 (Moim_O)</title>
-<link rel="stylesheet" href="style.css?v=20261121-5">
+<link rel="stylesheet" href="style.css?v=20261121-admin1">
 <script src="config.js?v=20261121-1"></script>
-<script type="module" src="app.js?v=20261121-fullname"></script>
+<script type="module" src="app.js?v=20261121-admin1"></script>
 </head>
 <body>
 <main class="app">
@@ -21,6 +21,7 @@
   <button id="create-open" class="big-button" type="button">모임 만들기 <span>＋</span></button>
   <div id="owner-account" class="owner-account">
    <button id="google-login" class="small-button" type="button">팀장 로그인 · 회원가입</button>
+   <button id="admin-open" class="small-button" type="button">서비스 관리자</button>
    <div id="owner-info" class="hidden account-bar">
     <span id="owner-name"></span>
     <button id="google-logout" type="button" class="small-button">로그아웃</button>
@@ -44,6 +45,35 @@
   <input id="account-password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="8자 이상"></div>
  <button id="account-submit" class="big-button" type="button">로그인</button>
  <p id="account-error" class="error" role="alert"></p>
+ <div class="account-recovery-entry"><button id="account-recover-open" class="small-button" type="button">아이디·비밀번호 찾기</button></div>
+</section>
+<section id="recover-view" class="hidden form">
+ <h1>계정 찾기 · 비밀번호 재설정</h1>
+ <p class="subhead">회원가입 시 발급받은 복구 코드를 입력하세요. 아이디는 복구 코드에 포함되어 있습니다.</p>
+ <div class="field"><label for="recovery-code">복구 코드</label>
+  <input id="recovery-code" autocomplete="off" placeholder="MOIMO:아이디:복구키"></div>
+ <div class="field"><label for="recovery-password">새 비밀번호 (8자 이상)</label>
+  <input id="recovery-password" type="password" autocomplete="new-password"></div>
+ <button id="recover-submit" class="big-button" type="button">비밀번호 재설정</button>
+ <p id="recover-error" class="error" role="alert"></p>
+</section>
+<section id="admin-view" class="hidden admin-view">
+ <div class="room-head"><h1>모이모 최고관리자</h1><button id="admin-refresh" class="small-button" type="button">새로고침</button></div>
+ <p class="subhead">Cloudflare에서 설정한 관리자 비밀키가 있어야 전체 현황을 볼 수 있습니다.</p>
+ <div class="field"><label for="admin-key">최고관리자 비밀키</label>
+  <input id="admin-key" type="password" autocomplete="off" placeholder="Cloudflare MOIMO_ADMIN_KEY">
+ </div>
+ <button id="admin-connect" class="big-button" type="button">관리자 인증 및 전체 조회</button>
+ <p id="admin-status" class="error" role="alert"></p>
+ <div id="admin-dashboard" class="hidden">
+  <div id="admin-stats" class="admin-stats"></div>
+  <h2>전체 모임</h2><div id="admin-rooms" class="saved-meetings-list"></div>
+  <h2>전체 팀장 계정</h2><div id="admin-accounts" class="saved-meetings-list"></div>
+  <div class="field"><label for="admin-lookup">기존 계정 직접 찾기</label>
+   <div class="input-row"><input id="admin-lookup" placeholder="아이디"><button id="admin-find" class="small-button" type="button">찾기</button></div>
+  </div>
+  <div id="admin-inspection"></div>
+ </div>
 </section>
 <section id="join-view" class="hidden form">
  <h1 id="join-room-title">모임 참여</h1>
