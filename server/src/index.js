@@ -60,7 +60,7 @@ function allowedOrigin(request) {
   return false;
 }
 function corsHeaders(origin) {
-  return origin ? { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type, authorization, x-moimo-user, x-moimo-session", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "vary": "Origin" } : {};
+  return origin ? { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type, authorization, x-moimo-user, x-moimo-session, x-moimo-admin", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "vary": "Origin" } : {};
 }
 function authToken(request) {
   const match = /^Bearer ([A-Za-z0-9_-]{40,64})$/.exec(request.headers.get("Authorization") || "");
@@ -74,6 +74,19 @@ async function parseBody(request) {
 
 
 const ROOM_LIFETIME_MS=60*24*60*60*1000;
+function catalogStub(env){return env.ROOMS.get(env.ROOMS.idFromName("__moimo_catalog_v1"))}
+async function verifiedAdmin(request,env){
+  const expected=env.MOIMO_ADMIN_KEY;
+  const given=request.headers.get("X-Moimo-Admin")||"";
+  if(typeof expected!=="string"||expected.length<32||given.length<32||given.length>512)return false;
+  return await hash(expected)===await hash(given);
+}
+function recoveryUsername(code){
+  if(typeof code!=="string")return "";
+  const match=/^MOIMO:([\p{L}\p{N}_.-]{3,24}):([A-Za-z0-9_-]{40,64})$/u.exec(code);
+  return match?usernameOf(match[1]):"";
+}
+
 function usernameOf(value) {
   if(typeof value!=="string")return "";
   const name=value.trim().normalize("NFKC").toLowerCase();
@@ -119,6 +132,82 @@ export default {
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(request.url);
     if (url.pathname === "/api/health" && request.method === "GET") return json({ ok: true, app: "Moim_O" }, 200, cors);
+
+
+    if(url.pathname==="/api/account/recover" && request.method==="POST"){
+      const b=await parseBody(request), username=recoveryUsername(b?.recoveryCode);
+      if(!username||!passwordAllowed(b?.newPassword))
+        return json({error:"복구 코드와 새 비밀번호를 확인하세요."},400,cors);
+      if(!await creationLimit(env,request))
+        return json({error:"복구 요청이 너무 많습니다."},429,cors);
+      return corsResponse(await internalRequest(accountStub(env,"acct:"+username),"account/recover",b),cors);
+    }
+    if(url.pathname==="/api/account/recovery/rotate" && request.method==="POST"){
+      const uid=await verifiedOwner(request,env);
+      if(!uid)return json({error:"로그인이 필요합니다."},401,cors);
+      return corsResponse(await internalRequest(accountStub(env,uid),"account/recovery/rotate",{}),cors);
+    }
+    if(url.pathname==="/api/account/password" && request.method==="POST"){
+      const uid=await verifiedOwner(request,env),b=await parseBody(request);
+      if(!uid)return json({error:"로그인이 필요합니다."},401,cors);
+      return corsResponse(await internalRequest(accountStub(env,uid),"account/password",b),cors);
+    }
+    if(url.pathname.startsWith("/api/admin/")){
+      if(typeof env.MOIMO_ADMIN_KEY!=="string"||env.MOIMO_ADMIN_KEY.length<32)
+        return json({error:"Cloudflare에 MOIMO_ADMIN_KEY 비밀키를 등록해야 합니다."},503,cors);
+      if(!await verifiedAdmin(request,env))return json({error:"최고관리자 인증 실패"},403,cors);
+      if(url.pathname==="/api/admin/rooms"&&request.method==="GET")
+        return corsResponse(await internalRequest(catalogStub(env),"catalog/rooms"),cors);
+      if(url.pathname==="/api/admin/accounts"&&request.method==="GET")
+        return corsResponse(await internalRequest(catalogStub(env),"catalog/accounts"),cors);
+      const roomPath=/^\/api\/admin\/rooms\/([A-Za-z0-9_-]{12,24})$/.exec(url.pathname);
+      if(roomPath){
+        const stub=env.ROOMS.get(env.ROOMS.idFromName(roomPath[1]));
+        if(request.method==="GET")return corsResponse(
+          await internalRequest(stub,"admin/room",{roomId:roomPath[1]}),cors);
+        if(request.method==="DELETE")return corsResponse(
+          await internalRequest(stub,"admin/delete",{roomId:roomPath[1]}),cors);
+      }
+      if(url.pathname==="/api/admin/account/find"&&request.method==="POST"){
+        const b=await parseBody(request), username=usernameOf(b?.username);
+        if(!username)return json({error:"아이디를 확인하세요."},400,cors);
+        const stub=accountStub(env,"acct:"+username);
+        const result=await internalRequest(stub,"account/admin-status");
+        if(result.ok)await internalRequest(catalogStub(env),"catalog/account-add",{username});
+        return corsResponse(result,cors);
+      }
+      if(url.pathname==="/api/admin/account/reset-code"&&request.method==="POST"){
+        const b=await parseBody(request),username=usernameOf(b?.username);
+        if(!username)return json({error:"아이디를 확인하세요."},400,cors);
+        return corsResponse(await internalRequest(accountStub(env,"acct:"+username),
+          "account/admin-reset-code",{}),cors);
+      }
+      const delAccount=/^\/api\/admin\/accounts\/([\p{L}\p{N}_.-]{3,24})$/u.exec(url.pathname);
+      if(delAccount && request.method==="DELETE"){
+        const username=usernameOf(delAccount[1]);
+        if(!username)return json({error:"아이디를 확인하세요."},400,cors);
+        const stub=accountStub(env,"acct:"+username);
+        const begin=await internalRequest(stub,"account/begin-delete",{});
+        if(!begin.ok)return corsResponse(begin,cors);
+        const details=await begin.json();
+        let deleted=0;
+        for(const entry of details.rooms){
+          if(!entry.roomId)continue;
+          const member=env.ROOMS.get(env.ROOMS.idFromName(entry.roomId));
+          const result=await internalRequest(member,"admin/delete",
+            {roomId:entry.roomId,expectedOwner:"acct:"+username});
+          if(!result.ok && result.status!==404)
+            return json({error:"일부 모임 삭제에 실패했습니다. 다시 실행하면 이어서 처리합니다.",deleted},500,cors);
+          await internalRequest(catalogStub(env),"catalog/room-remove",{roomId:entry.roomId});
+          deleted++;
+        }
+        const finished=await internalRequest(stub,"account/final-delete",{});
+        if(!finished.ok)return corsResponse(finished,cors);
+        await internalRequest(catalogStub(env),"catalog/account-remove",{username});
+        return json({ok:true,deletedRooms:deleted},200,cors);
+      }
+      return json({error:"최고관리자 메뉴를 찾을 수 없습니다."},404,cors);
+    }
 
     if (url.pathname === "/api/account/register" && request.method === "POST" ||
         url.pathname === "/api/account/login" && request.method === "POST") {
