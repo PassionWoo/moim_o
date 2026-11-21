@@ -494,7 +494,7 @@ async function openRoom(){
  if(!roomId||!secret)return;
  show("room");selected="";dayIndex=0;
  $("status").textContent="연결 중…";
- try{room=await request("/api/rooms/"+roomId);selected=room.role==="participant"?room.participantId:"dashboard";renderRoom();websocket()}
+ try{room=await request("/api/rooms/"+roomId);selected=room.participantId || "dashboard";renderRoom();websocket()}
  catch(e){msg(e.message);$("status").textContent=e.message}
 }
 async function setup(){
