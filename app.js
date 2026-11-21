@@ -1,3 +1,4 @@
+import {auth, loginGoogle, logoutGoogle, onAuthStateChanged, ownerIdToken} from "./auth.js";
 const $=id=>document.getElementById(id);
 const API=(window.MOIMO_API_URL||"").replace(/\/$/,"");
 const WEEK=["일","월","화","수","목","금","토"];
@@ -12,28 +13,39 @@ const hhmm=m=>`${pad(Math.floor(m/60))}:${pad(m%60)}`;
 const toMin=s=>{const [h,m]=s.split(":").map(Number);return h*60+m};
 const randomHash=()=>location.hash.slice(1);
 let month=new Date(initialDate.getFullYear(),initialDate.getMonth(),1),rangeStart=null,rangeEnd=null;
-let names=["","","",""],roomId="",secret="",room=null,links=null,selected="",paintColor="both",painting=false,pending={},saveTimer=null,ws=null,dayIndex=0,manualClose=false;
-let view="start",connectionTimer=null;
+let names=Array.from({length:4},()=>({name:"",pin:""})),roomId="",secret="",room=null,links=null,selected="",paintColor="both",painting=false,pending={},saveTimer=null,ws=null,dayIndex=0,manualClose=false;
+let view="start",connectionTimer=null, ownerUser=null, ownerRooms=[];
 const mobile=()=>matchMedia("(max-width:800px)").matches;
 function show(id) {
- for(const k of ["start","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
+ for(const k of ["start","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
  $("home-btn").classList.toggle("hidden",id==="start");
  view=id;
 }
 function msg(text){const el=$("toast");el.textContent=text;el.classList.remove("hidden");clearTimeout(msg.timer);msg.timer=setTimeout(()=>el.classList.add("hidden"),2200)}
 function error(text){$("create-error").textContent=text}
 function renderMembers(){
- const el=$("member-inputs");
- const focused=el.contains(document.activeElement)?Number(document.activeElement.dataset.member):null;
- const pos=focused!=null&&document.activeElement.selectionStart!=null?document.activeElement.selectionStart:null;
- el.innerHTML=names.map((name,i)=>`<div class="member-row"><input data-member="${i}" aria-label="참석자 ${i+1}" maxlength="30" placeholder="참석자 ${i+1}" value=""><button type="button" class="member-remove" data-remove="${i}" aria-label="참석자 삭제">×</button></div>`).join("");
- el.querySelectorAll("[data-member]").forEach((input,i)=>input.value=names[i]);
+ const el=$("member-inputs");el.replaceChildren();
+ names.forEach((person,i)=>{
+  const row=document.createElement("div");row.className="member-row";
+  const name=document.createElement("input");name.placeholder="참석자 "+(i+1);
+  name.maxLength=30;name.value=person.name;name.setAttribute("aria-label","참석자 "+(i+1)+" 이름");
+  name.addEventListener("input",()=>{person.name=name.value});
+  const pin=document.createElement("input");pin.className="pin-input";pin.type="text";
+  pin.inputMode="numeric";pin.autocomplete="off";pin.maxLength=4;pin.placeholder="번호 4자리";
+  pin.value=person.pin;pin.setAttribute("aria-label","참석자 "+(i+1)+" 전화번호 끝 네 자리");
+  pin.addEventListener("input",()=>{pin.value=pin.value.replace(/[^0-9]/g,"").slice(0,4);person.pin=pin.value});
+  const remove=document.createElement("button");remove.className="member-remove";
+  remove.type="button";remove.textContent="×";remove.setAttribute("aria-label","참석자 삭제");
+  remove.addEventListener("click",()=>{if(names.length===1)return msg("최소 1명");names.splice(i,1);renderMembers()});
+  row.append(name,pin,remove);el.append(row);
+ });
  $("member-count").textContent=names.length+"명";
- if(focused!=null&&el.querySelector(`[data-member="${focused}"]`)){const input=el.querySelector(`[data-member="${focused}"]`);input.focus();if(pos!=null)input.setSelectionRange(pos,pos)}
 }
-$("member-inputs").addEventListener("input",e=>{const i=e.target.dataset.member;if(i!=null)names[Number(i)]=e.target.value});
-$("member-inputs").addEventListener("click",e=>{const b=e.target.closest("[data-remove]");if(!b)return;if(names.length===1){msg("최소 1명");return}names.splice(Number(b.dataset.remove),1);renderMembers()});
-$("add-member").addEventListener("click",()=>{if(names.length>=30){msg("최대 30명");return}names.push("");renderMembers();$("member-inputs").lastElementChild.querySelector("input").focus()});
+$("add-member").addEventListener("click",()=>{
+ if(names.length>=30)return msg("최대 30명");
+ names.push({name:"",pin:""});renderMembers();
+ $("member-inputs").lastElementChild.querySelector("input")?.focus();
+});
 function renderCalendar(){
  $("month-label").textContent=`${month.getFullYear()}년 ${month.getMonth()+1}월`;
  const startOffset=new Date(month.getFullYear(),month.getMonth(),1).getDay();
@@ -68,11 +80,11 @@ function setupTimes(){
  from.value="06:00";to.value="24:00";
 }
 function configFromForm(){
- const title=$("title").value.trim(),participants=names.map(n=>n.trim());
+ const title=$("title").value.trim(),participants=names.map(p=>({name:p.name.trim(),pin:p.pin}));
  const value=Number($("unit").value),unitMinutes=$("unit-type").value==="hours"?value*60:value;
  const startTime=$("time-from").value,endTime=$("time-to").value;
  if(!title){error("모임 이름을 입력하세요.");return null}
- if(participants.some(n=>!n)||new Set(participants).size!==participants.length){error("참석자 이름을 확인하세요.");return null}
+ if(participants.some(p=>!p.name||!/^\\d{4}$/.test(p.pin))||new Set(participants.map(p=>p.name)).size!==participants.length){error("참석자 이름과 번호 4자리를 확인하세요.");return null}
  if(!rangeStart||!rangeEnd){error("시작 날짜와 종료 날짜를 선택하세요.");return null}
  const dayCount=Math.round((fromISO(rangeEnd)-fromISO(rangeStart))/86400000)+1;
  if(dayCount>31){error("날짜는 최대 31일까지 선택할 수 있습니다.");return null}
@@ -81,9 +93,12 @@ function configFromForm(){
  if(duration<=0||Math.ceil(duration/unitMinutes)>96||dayCount*Math.ceil(duration/unitMinutes)>1500){error("하루 시간 범위를 확인하세요.");return null}
  return {title,participants,startDate:rangeStart,endDate:rangeEnd,unitMinutes,startTime,endTime};
 }
-async function request(path,{method="GET",data=null,key=secret}={}){
+async function request(path,{method="GET",data=null,key=secret,owner=false}={}){
  if(!API)throw Error("서버 연결 설정이 필요합니다.");
- const res=await fetch(API+path,{method,headers:{"content-type":"application/json",...(key?{"authorization":"Bearer "+key}:{})},...(data?{body:JSON.stringify(data)}:{})});
+ const headers={"content-type":"application/json"};
+ if(key) headers.authorization="Bearer "+key;
+ if(owner) headers["X-Firebase-Token"]=await ownerIdToken();
+ const res=await fetch(API+path,{method,headers,...(data!==null?{body:JSON.stringify(data)}:{})});
  const answer=await res.json().catch(()=>({}));
  if(!res.ok)throw Error(answer.error||"요청 실패");
  return answer;
@@ -91,49 +106,122 @@ async function request(path,{method="GET",data=null,key=secret}={}){
 function makeURL(id,key){
  const url=new URL("./",location.href);url.hash=new URLSearchParams({r:id,k:key}).toString();return url.href;
 }
+function sharedURL(id){
+ const url=new URL("./",location.href);url.hash="r="+encodeURIComponent(id);return url.href;
+}
 async function copy(value){try{await navigator.clipboard.writeText(value);msg("복사됨")}catch{window.prompt("링크 복사",value)}}
-function shareRow(name,url,reissueId){
- const row=document.createElement("div");row.className="share-row";
- const label=document.createElement("strong");label.textContent=name;
- const button=document.createElement("button");button.type="button";button.textContent="복사";button.addEventListener("click",()=>copy(url));
- row.append(label,button);
- if(reissueId){
-  const again=document.createElement("button");again.type="button";again.textContent="재발급";
-  again.addEventListener("click",async()=>{if(!confirm("기존 링크는 사용할 수 없게 됩니다. 계속할까요?"))return;
-    again.disabled=true;
-    try{const r=await request(`/api/rooms/${roomId}/reissue/${reissueId}`,{method:"POST"});
-      if(reissueId==="viewer")links.viewerToken=r.token;
-      else links.participants.find(p=>p.id===reissueId).token=r.token;
-      renderShareRows("manager-links",true);msg("새 링크 발급 완료");
-    }catch(e){msg(e.message)}finally{again.disabled=false}
-  });
-  row.appendChild(again);
- }
- return row;
-}
-function renderShareRows(target,manager=false){
+function renderShareRows(target){
  const el=$(target);el.replaceChildren();
- if(!links)return;
- el.appendChild(shareRow("대시보드",makeURL(roomId,links.viewerToken),manager?"viewer":null));
- for(const p of links.participants)el.appendChild(shareRow(p.name,makeURL(roomId,p.token),manager?p.id:null));
+ const row=document.createElement("div");row.className="share-row";
+ const name=document.createElement("strong");name.textContent="모임 참여 링크";
+ const button=document.createElement("button");button.type="button";button.textContent="복사";
+ button.addEventListener("click",()=>copy(sharedURL(roomId)));
+ row.append(name,button);el.append(row);
 }
-$("create-open").addEventListener("click",()=>{show("create");renderMembers();renderCalendar()});
-$("home-btn").addEventListener("click",()=>{location.hash="";if(ws){manualClose=true;ws.close();ws=null}room=null;roomId="";secret="";links=null;show("start")});
+async function loadMyRooms(){
+ if(!ownerUser){ownerRooms=[];renderMyRooms();return}
+ try{
+  const data=await request("/api/my/rooms",{owner:true,key:null});
+  ownerRooms=data.rooms||[];renderMyRooms();
+ }catch(e){$("saved-meetings").classList.remove("hidden");$("saved-meetings-list").textContent=e.message}
+}
+function renderMyRooms(){
+ const section=$("saved-meetings"),list=$("saved-meetings-list");
+ section.classList.toggle("hidden",!ownerUser);list.replaceChildren();
+ if(!ownerUser)return;
+ if(!ownerRooms.length){
+  const note=document.createElement("p");note.className="subhead";note.textContent="생성한 모임이 없습니다.";
+  list.append(note);return;
+ }
+ for(const entry of ownerRooms){
+  const row=document.createElement("div");row.className="saved-room";
+  const main=document.createElement("button");main.className="saved-room-open";main.type="button";
+  const title=document.createElement("strong");title.textContent=entry.title;
+  const subtitle=document.createElement("span");subtitle.textContent=entry.startDate+" ~ "+entry.endDate;
+  main.append(title,subtitle);
+  main.addEventListener("click",()=>enterManagedRoom(entry));
+  const del=document.createElement("button");del.type="button";del.className="small-button delete-button";del.textContent="삭제";
+  del.addEventListener("click",()=>deleteManagedRoom(entry));
+  row.append(main,del);list.append(row);
+ }
+}
+async function enterManagedRoom(entry){
+ roomId=entry.roomId;secret=entry.managerToken;links=null;
+ history.replaceState(null,"","#"+new URLSearchParams({r:roomId,k:secret}));
+ await openRoom();
+}
+async function deleteManagedRoom(entry){
+ if(!confirm("‘"+entry.title+"’ 모임과 모든 시간표를 영구 삭제할까요?"))return;
+ if(!confirm("삭제하면 복구할 수 없습니다. 정말 삭제할까요?"))return;
+ try{
+  await request("/api/rooms/"+entry.roomId,{method:"DELETE",owner:!!ownerUser,key:entry.managerToken});
+  if(entry.roomId===roomId)goHome();
+  await loadMyRooms();msg("모임 삭제 완료");
+ }catch(e){msg(e.message)}
+}
+async function showJoin(id){
+ roomId=id;secret="";room=null;selected="";links=null;
+ try{
+  const info=await request("/api/rooms/"+roomId+"/public",{key:null});
+  $("join-room-title").textContent=info.title;
+  const select=$("join-name");select.replaceChildren();
+  const empty=document.createElement("option");empty.value="";empty.textContent="이름 선택";select.append(empty);
+  for(const person of info.participants){
+   const opt=document.createElement("option");opt.value=person;opt.textContent=person;select.append(opt);
+  }
+  $("join-pin").value="";$("join-error").textContent="";show("join");
+ }catch(e){show("start");msg(e.message);history.replaceState(null,"",location.pathname)}
+}
+$("join-pin").addEventListener("input",e=>{e.target.value=e.target.value.replace(/[^0-9]/g,"").slice(0,4)});
+$("join-submit").addEventListener("click",async()=>{
+ const name=$("join-name").value,pin=$("join-pin").value;
+ $("join-error").textContent="";
+ if(!name||!/^\\d{4}$/.test(pin))return $("join-error").textContent="이름과 번호 4자리를 확인하세요.";
+ const button=$("join-submit");button.disabled=true;
+ try{
+  const answer=await request("/api/rooms/"+roomId+"/join",{method:"POST",data:{name,pin},key:null});
+  secret=answer.token;
+  localStorage.setItem("moimo-session-"+roomId,JSON.stringify({token:answer.token,expiresAt:answer.expiresAt}));
+  await openRoom();
+ }catch(e){$("join-error").textContent=e.message}finally{button.disabled=false}
+});
+$("create-open").addEventListener("click",()=>{
+ if(!ownerUser)return msg("구글 로그인 후 모임을 만들 수 있습니다.");
+ show("create");renderMembers();renderCalendar()
+});
+function goHome(){
+ history.replaceState(null,"",location.pathname);
+ if(ws){manualClose=true;ws.close();ws=null}
+ room=null;roomId="";secret="";links=null;show("start");renderMyRooms();
+}
+$("home-btn").addEventListener("click",goHome);
+$("google-login").addEventListener("click",async()=>{
+ try{await loginGoogle()}catch(e){msg(e.code==="auth/popup-closed-by-user"?"로그인이 취소됐습니다.":"구글 로그인에 실패했습니다. Firebase에서 Google 로그인 제공업체를 활성화했는지 확인하세요.")}
+});
+$("google-logout").addEventListener("click",async()=>{await logoutGoogle();goHome()});
+onAuthStateChanged(auth,user=>{
+ ownerUser=user;
+ $("google-login").classList.toggle("hidden",!!user);
+ $("owner-info").classList.toggle("hidden",!user);
+ $("owner-name").textContent=user?.displayName||user?.email||"";
+ if(user)loadMyRooms();else{ownerRooms=[];renderMyRooms()}
+});
 $("create-submit").addEventListener("click",async()=>{
  error("");const config=configFromForm();if(!config)return;
  const button=$("create-submit");button.disabled=true;button.textContent="생성 중…";
  try{
-  const result=await request("/api/rooms",{method:"POST",data:config,key:null});
+  const result=await request("/api/rooms",{method:"POST",data:config,key:null,owner:true});
   roomId=result.roomId;secret=result.managerToken;links=result;
-  localStorage.setItem("moimo-manager-"+roomId,JSON.stringify(result));
+  localStorage.setItem("moimo-manager-"+roomId,JSON.stringify({roomId,managerToken:secret}));
   $("share-name").textContent=config.title;
   renderShareRows("share-list");
-  history.replaceState(null,"","#"+new URLSearchParams({r:roomId,k:secret}).toString());
-  show("share");
+  history.replaceState(null,"","#"+new URLSearchParams({r:roomId,k:secret}));
+  show("share");await loadMyRooms();
  }catch(e){error(e.message)}finally{button.disabled=false;button.textContent="모임 만들기"}
 });
 $("share-dashboard").addEventListener("click",()=>openRoom());
-$("copy-current").addEventListener("click",()=>copy(makeURL(roomId,secret)));
+$("copy-current").addEventListener("click",()=>copy(sharedURL(roomId)));
+$("room-delete").addEventListener("click",()=>deleteManagedRoom({roomId,title:room?.config?.title||"모임",managerToken:secret}));
 const clone=o=>JSON.parse(JSON.stringify(o));
 function slotLabel(min){const h=Math.floor(min/60),m=min%60;return `${pad(h)}:${pad(m)}`}
 function getSlotCount(){return Math.ceil((toMin(room.config.endTime)-toMin(room.config.startTime))/room.config.unitMinutes)}
@@ -157,7 +245,7 @@ function renderRoom(){
  $("brushes").classList.toggle("hidden",!allowedToEdit());
  $("legend").classList.toggle("hidden",selected!=="dashboard");
  $("manager-panel").classList.toggle("hidden",room.role!=="manager");
- if(room.role==="manager")renderShareRows("manager-links",true);
+ if(room.role==="manager")renderShareRows("manager-links");
  document.querySelectorAll("[data-brush]").forEach(btn=>btn.classList.toggle("selected",btn.dataset.brush===paintColor));
  $("day-controls").classList.toggle("hidden",!mobile());
  renderSlots();
@@ -263,14 +351,23 @@ async function openRoom(){
  try{room=await request("/api/rooms/"+roomId);selected=room.role==="participant"?room.participantId:"dashboard";renderRoom();websocket()}
  catch(e){msg(e.message);$("status").textContent=e.message}
 }
-function setup(){
- renderMembers();renderCalendar();setupTimes();
+async function setup(){
+ renderMembers();renderCalendar();setupTimes();show("start");
  const params=new URLSearchParams(randomHash()),r=params.get("r"),k=params.get("k");
- if(r&&k&&/^[a-zA-Z0-9_-]{12,24}$/.test(r)&&/^[a-zA-Z0-9_-]{40,64}$/.test(k)){
-  roomId=r;secret=k;
-  try{const stored=JSON.parse(localStorage.getItem("moimo-manager-"+r)||"null");if(stored?.managerToken===k)links=stored}catch{}
-  openRoom();
- }else show("start");
+ if(r&&/^[a-zA-Z0-9_-]{12,24}$/.test(r)){
+  if(k && /^[a-zA-Z0-9_-]{40,64}$/.test(k)){
+    roomId=r;secret=k;
+    await openRoom();
+  }else{
+    const session=JSON.parse(localStorage.getItem("moimo-session-"+r)||"null");
+    if(session?.token && session.expiresAt>Date.now()){
+      roomId=r;secret=session.token;
+      try{room=await request("/api/rooms/"+r);await openRoom();return}
+      catch{localStorage.removeItem("moimo-session-"+r)}
+    }
+    await showJoin(r);
+  }
+ }
  if(!API){document.querySelector("#start-view").insertAdjacentHTML("beforeend",'<p class="error">서버 연결 설정이 필요합니다.</p>')}
 }
 setup();
