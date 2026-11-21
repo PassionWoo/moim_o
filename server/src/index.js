@@ -38,12 +38,17 @@ function validateNew(data) {
   if (!data || typeof data !== "object") return null;
   const title = cleanName(data.title, 80);
   const names = data.participants;
-  if (!title || !Array.isArray(names) || names.length < 1 || names.length > MAX_MEMBERS ||
+  // ownerName is present in new rooms. Old clients / rooms remain compatible.
+  const ownerName = data.ownerName === undefined ? null : cleanName(data.ownerName);
+  if (ownerName !== null && (!ownerName || data.ownerName.trim().length > 30)) return null;
+  if (!title || !Array.isArray(names) || names.length < 1 ||
+      names.length + (ownerName ? 1 : 0) > MAX_MEMBERS ||
       names.some(p => !p || typeof p !== "object" || !cleanName(p.name) ||
         p.name.trim().length > 30 || !/^[0-9]{4}$/.test(p.pin || ""))) return null;
   const members = names.map(p => ({ name:cleanName(p.name), pin:p.pin }))
     .sort((a,b)=>a.name.localeCompare(b.name,"ko"));
-  if (new Set(members.map(p=>p.name)).size !== members.length) return null;
+  const allNames = ownerName ? [ownerName,...members.map(p=>p.name)] : members.map(p=>p.name);
+  if (new Set(allNames).size !== allNames.length) return null;
   const dates = makeDates(data.startDate, data.endDate);
   const begin = minutes(data.startTime), end = minutes(data.endTime);
   const step = data.unitMinutes;
@@ -51,7 +56,7 @@ function validateNew(data) {
       step < 5 || step > 720 || Math.ceil((end - begin) / step) > MAX_SLOTS_PER_DAY) return null;
   if (dates.length * Math.ceil((end-begin)/step) > 1500) return null;
   return { title, dates, startTime: data.startTime, endTime: data.endTime,
-    unitMinutes: step, participants: members };
+    unitMinutes: step, ownerName, participants: members };
 }
 function allowedOrigin(request) {
   const origin = request.headers.get("Origin");
@@ -270,11 +275,17 @@ export default {
         const salt=token().slice(0,16), id="p"+(i+1);
         return {id,name:p.name,pinSalt:salt,pinHash:await hash(salt+":"+p.pin)};
       }));
+      // The organizer is a participant of the meeting, authenticated through
+      // their management credential, not through a guest 4-digit PIN.
+      if(checked.ownerName)participants.unshift({
+        id:"owner",name:checked.ownerName,pinSalt:null,pinHash:null
+      });
       const stub = env.ROOMS.get(env.ROOMS.idFromName(roomId));
       const result = await stub.fetch(new Request("https://internal/init", {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ config: { roomId, title: checked.title, dates: checked.dates,
-          startTime: checked.startTime, endTime: checked.endTime, unitMinutes: checked.unitMinutes },
+          startTime: checked.startTime, endTime: checked.endTime, unitMinutes: checked.unitMinutes,
+          ownerParticipantId:checked.ownerName?"owner":null },
           managerHash: await hash(managerToken), viewerHash: await hash(viewerToken),
           ownerUid:uid,
           participants:participants.map(p=>({id:p.id,name:p.name,pinSalt:p.pinSalt,pinHash:p.pinHash})) })
@@ -368,7 +379,10 @@ export class Room extends DurableObject {
     if (!value) return null;
     const h = await hash(value), m = this.meta();
     if (!m) return null;
-    if (h === m.manager_hash) return { role:"manager" };
+    if (h === m.manager_hash) {
+      const cfg=JSON.parse(m.config);
+      return {role:"manager",participantId:cfg.ownerParticipantId||null};
+    }
     if (h === m.viewer_hash) return { role:"viewer" };
     const p = [...this.sql.exec("SELECT id FROM people WHERE token_hash=?",h)][0];
     if (p) return {role:"participant",participantId:p.id};
@@ -593,7 +607,9 @@ export class Room extends DurableObject {
 
     if (path.endsWith("/public") && request.method === "GET") {
       const cfg=JSON.parse(this.meta().config);
-      return json({title:cfg.title,dates:cfg.dates,participants:this.people().map(p=>p.name)});
+      // Exclude organizer: their manager account already grants access to own slots.
+      return json({title:cfg.title,dates:cfg.dates,
+        participants:this.people().filter(p=>p.pin_hash).map(p=>p.name)});
     }
     if (path.endsWith("/join") && request.method === "POST") {
       const b=await parseBody(request);
@@ -628,7 +644,10 @@ export class Room extends DurableObject {
     if (!auth) return fail("참여 링크가 올바르지 않습니다.",401);
     if (request.method==="GET" && /^\/api\/rooms\/[\w-]+$/.test(path)) return json(this.snapshot(auth));
     if (request.method==="PUT" && path.endsWith("/slots")) {
-      if (auth.role!=="participant") return fail("본인 일정만 수정할 수 있습니다.",403);
+      if (!(auth.role==="participant" ||
+          (auth.role==="manager" && auth.participantId==="owner"))) {
+        return fail("본인 일정만 수정할 수 있습니다.",403);
+      }
       const body=await parseBody(request), changes=body?.changes;
       if (!changes || typeof changes!=="object" || Array.isArray(changes) || Object.keys(changes).length>200) return fail("잘못된 시간표");
       const cfg=JSON.parse(this.meta().config), n=Math.ceil((minutes(cfg.endTime)-minutes(cfg.startTime))/cfg.unitMinutes);
