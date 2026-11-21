@@ -42,7 +42,7 @@ function renderMembers(){
  $("member-count").textContent=names.length+"명";
 }
 $("add-member").addEventListener("click",()=>{
- if(names.length>=30)return msg("최대 30명");
+ if(names.length>=29)return msg("팀장을 포함해 최대 30명까지 등록할 수 있습니다.");
  names.push({name:"",pin:""});renderMembers();
  $("member-inputs").lastElementChild.querySelector("input")?.focus();
 });
@@ -85,6 +85,7 @@ function configFromForm(){
  const startTime=$("time-from").value,endTime=$("time-to").value;
  if(!title){error("모임 이름을 입력하세요.");return null}
  if(!ownerName || ownerName.length>30){error("팀장 본인의 이름을 입력하세요.");return null}
+ if(participants.length>29){error("팀장을 포함해 최대 30명까지 등록할 수 있습니다.");return null}
  if(participants.some(p=>!p.name||!/^\d{4}$/.test(p.pin))||new Set([ownerName,...participants.map(p=>p.name)]).size!==participants.length+1){error("팀장과 다른 참석자의 이름은 중복되지 않아야 하며, 전화번호 끝 4자리를 정확히 입력해야 합니다.");return null}
  if(!rangeStart||!rangeEnd){error("시작 날짜와 종료 날짜를 선택하세요.");return null}
  const dayCount=Math.round((fromISO(rangeEnd)-fromISO(rangeStart))/86400000)+1;
