@@ -218,6 +218,7 @@ export default {
         return json({error:"가입 시도가 너무 많습니다. 잠시 후 다시 시도하세요."},429,cors);
       const action=url.pathname.endsWith("/register")?"register":"login";
       const result=await internalRequest(accountStub(env,"acct:"+username),"account/"+action,{username,password});
+      if(result.ok)await internalRequest(catalogStub(env),"catalog/account-add",{username});
       return corsResponse(result,cors);
     }
     if(url.pathname === "/api/account/me" && request.method === "GET"){
@@ -251,6 +252,13 @@ export default {
         endDate:info.endDate, managerToken:input.managerToken, expiresAt:info.expiresAt};
       const added=await internalRequest(accountStub(env,uid),"account/add",entry);
       if(!added.ok) return json({error:"모임 계정 연결을 저장하지 못했습니다."},500,cors);
+      const detail=await internalRequest(stub,"admin/room",{});
+      if(detail.ok){
+        const d=await detail.json();
+        await internalRequest(catalogStub(env),"catalog/room-add",
+          {roomId:entry.roomId,owner:uid.slice(5),title:d.title,startDate:d.startDate,
+           endDate:d.endDate,expiresAt:d.expiresAt,participantCount:d.participants.length});
+      }
       return json({ok:true},200,cors);
     }
     const deletion=/^\/api\/rooms\/([\w-]{12,24})$/.exec(url.pathname);
@@ -289,6 +297,10 @@ export default {
       const entry={roomId,title:checked.title,startDate:checked.dates[0],endDate:checked.dates.at(-1),managerToken,expiresAt:Date.now()+ROOM_LIFETIME_MS};
       const record=await internalRequest(accountStub(env,uid),"account/add",entry);
       if(!record.ok) return json({error:"모임은 생성되었지만 내 모임 저장에 실패했습니다.",roomId,managerToken},500,cors);
+      await internalRequest(catalogStub(env),"catalog/room-add",{
+        roomId,owner:uid.slice(5),title:checked.title,startDate:checked.dates[0],
+        endDate:checked.dates.at(-1),expiresAt:entry.expiresAt,participantCount:participants.length
+      });
       return json({roomId,managerToken,participants:participants.map(p=>({id:p.id,name:p.name}))},201,cors);
     }
     const match = /^\/api\/rooms\/([A-Za-z0-9_-]{12,24})(?:\/(.*))?$/.exec(url.pathname);
@@ -347,7 +359,10 @@ export class Room extends DurableObject {
     if(m.owner_uid){
       try{
         const identifier=JSON.parse(m.config).roomId;
-        if(identifier)await internalRequest(accountStub(this.env,m.owner_uid),"account/remove",{roomId:identifier});
+        if(identifier){
+          await internalRequest(accountStub(this.env,m.owner_uid),"account/remove",{roomId:identifier});
+          await internalRequest(catalogStub(this.env),"catalog/room-remove",{roomId:identifier});
+        }
       }catch{}
     }
     await this.ctx.storage.deleteAlarm();
