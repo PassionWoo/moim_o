@@ -17,7 +17,7 @@ let names=Array.from({length:4},()=>({name:"",pin:""})),roomId="",secret="",room
 let view="start",connectionTimer=null, ownerUser=null, ownerRooms=[],accountRegister=false;
 const mobile=()=>matchMedia("(max-width:800px)").matches;
 function show(id) {
- for(const k of ["start","account","recover","admin","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
+ for(const k of ["start","account","recovery-issued","recover","admin","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
  $("home-btn").classList.toggle("hidden",id==="start");
  view=id;
 }
@@ -217,7 +217,43 @@ function clearAdminSecret(){
  adminSecret="";$("admin-key").value="";$("admin-dashboard").classList.add("hidden");
 }
 function adminNote(message){$("admin-status").textContent=message}
-$("admin-open").addEventListener("click",()=>show("admin"));
+// Administrator view is intentionally not advertised in the public interface.
+// Its URL is only an entry point; Cloudflare checks the admin secret on every API call.
+
+
+let hasCopiedRecovery=false;
+function displayRecoveryCode(value){
+ hasCopiedRecovery=false;
+ $("issued-recovery-code").value=value;
+ $("recovery-confirm").disabled=false;
+ show("recovery-issued");
+}
+$("recovery-copy").addEventListener("click",async()=>{
+ const value=$("issued-recovery-code").value;
+ if(!value)return;
+ try{
+  await navigator.clipboard.writeText(value);
+  hasCopiedRecovery=true;
+  msg("복구 코드가 복사되었습니다. 안전한 곳에 보관하세요.");
+ }catch{
+  $("issued-recovery-code").select();
+  msg("복구 코드를 선택했습니다. 직접 복사해 보관하세요.");
+ }
+});
+$("recovery-confirm").addEventListener("click",()=>{
+ if(!confirm("복구 코드를 별도로 저장했습니까? 이 화면에서 나가면 코드를 다시 확인할 수 없습니다."))return;
+ $("issued-recovery-code").value="";
+ goHome();
+});
+$("recovery-rotate").addEventListener("click",async()=>{
+ if(!ownerUser){show("account");return}
+ if(!confirm("새 복구 코드를 발급하면 이전 복구 코드는 무효화됩니다. 계속할까요?"))return;
+ try{
+  const r=await request("/api/account/recovery/rotate",{method:"POST",key:null,owner:true,data:{}});
+  displayRecoveryCode(r.recoveryCode);
+ }catch(e){msg(e.message)}
+});
+
 $("account-recover-open").addEventListener("click",()=>show("recover"));
 $("recover-submit").addEventListener("click",async()=>{
  const code=$("recovery-code").value.trim(),password=$("recovery-password").value;
@@ -340,10 +376,9 @@ $("account-submit").addEventListener("click",async()=>{
  button.disabled=true;
  try{
    const result=await loginAccount(username,password,accountRegister);
-   $("account-password").value="";goHome();
-   if(accountRegister&&result.recoveryCode){
-     window.prompt("계정 복구 코드입니다. 꼭 안전한 장소에 보관하세요. 이 코드를 분실하면 직접 복구할 수 없습니다.",result.recoveryCode);
-   }
+   $("account-password").value="";
+   if(accountRegister&&result.recoveryCode)displayRecoveryCode(result.recoveryCode);
+   else goHome();
   }
  catch(e){$("account-error").textContent=e.message}finally{button.disabled=false}
 });
@@ -518,6 +553,9 @@ async function openRoom(){
 async function setup(){
  renderMembers();renderCalendar();setupTimes();show("start");
  initializeAuth();
+ if(new URLSearchParams(location.search).get("admin")==="1"){
+  show("admin");return;
+ }
  const params=new URLSearchParams(randomHash()),r=params.get("r"),k=params.get("k");
  if(r&&/^[a-zA-Z0-9_-]{12,24}$/.test(r)){
   if(k && /^[a-zA-Z0-9_-]{40,64}$/.test(k)){
