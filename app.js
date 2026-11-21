@@ -199,12 +199,26 @@ $("google-login").addEventListener("click",async()=>{
  try{await loginGoogle()}catch(e){msg(e.code==="auth/popup-closed-by-user"?"로그인이 취소됐습니다.":"구글 로그인에 실패했습니다. Firebase에서 Google 로그인 제공업체를 활성화했는지 확인하세요.")}
 });
 $("google-logout").addEventListener("click",async()=>{await logoutGoogle();goHome()});
-onAuthStateChanged(auth,user=>{
+async function importEarlierRooms(){
+ const keys=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i)).filter(k=>k?.startsWith("moimo-manager-"));
+ for(const key of keys){
+  try {
+   const item=JSON.parse(localStorage.getItem(key)||"null");
+   const id=item?.roomId || key.slice("moimo-manager-".length);
+   if(!item?.managerToken||!/^[-_A-Za-z0-9]{12,24}$/.test(id))continue;
+   await request("/api/my/claim",{method:"POST",owner:true,key:null,data:{
+    roomId:id,managerToken:item.managerToken
+   }});
+  }catch{}
+ }
+}
+onAuthStateChanged(auth,async user=>{
  ownerUser=user;
  $("google-login").classList.toggle("hidden",!!user);
  $("owner-info").classList.toggle("hidden",!user);
  $("owner-name").textContent=user?.displayName||user?.email||"";
- if(user)loadMyRooms();else{ownerRooms=[];renderMyRooms()}
+ if(user){await importEarlierRooms();await loadMyRooms()}
+ else{ownerRooms=[];renderMyRooms()}
 });
 $("create-submit").addEventListener("click",async()=>{
  error("");const config=configFromForm();if(!config)return;
