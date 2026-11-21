@@ -303,7 +303,7 @@ function renderSlots(){
    const key='d'+d+'s'+t;
    if(selected==="dashboard"){
     const chips=room.participants.map(p=>{
-     const v=p.slots[key];return v?'<span class="chip '+v+'" title="'+escapeHTML(p.name)+'">'+escapeHTML(p.name.slice(0,2))+'</span>':'';
+     const v=p.slots[key];return v?'<span class="chip '+v+'" title="'+escapeHTML(p.name)+'">'+escapeHTML(p.name)+'</span>':'';
     }).join('');
     body+='<td><div class="dashboard-cell">'+(chips||'<span class="empty">—</span>')+'</div></td>';
    }else{
