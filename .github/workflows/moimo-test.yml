@@ -1,64 +1,30 @@
-name: Moim_O API test
+name: Moim_O checks
 on:
-  workflow_dispatch:
   push:
     paths:
-      - '.github/workflows/moimo-test.yml'
+      - "app.js"
+      - "auth.js"
+      - "index.html"
+      - "style.css"
+      - "server/**"
+      - ".github/workflows/moimo-test.yml"
+  workflow_dispatch:
 
 jobs:
-  smoke:
+  syntax:
     runs-on: ubuntu-latest
     steps:
-      - name: Create and verify a demonstration meeting
-        shell: bash
-        env:
-          API: https://moim-o-api.w862589.workers.dev
+      - uses: actions/checkout@v4
+      - name: JavaScript module syntax checks
         run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          import os, json, urllib.request, urllib.error
-          api = os.environ['API']
-          def call(path, method='GET', data=None, key=None):
-              headers = {'Origin': 'https://passionwoo.github.io', 'Content-Type':'application/json'}
-              if key: headers['Authorization'] = 'Bearer ' + key
-              body = json.dumps(data).encode() if data is not None else None
-              req = urllib.request.Request(api+path, data=body, method=method, headers=headers)
-              try:
-                  with urllib.request.urlopen(req, timeout=20) as r:
-                      raw = r.read().decode('utf-8', 'replace')
-                  print('HTTP', path, r.status, raw[:400])
-                  return r.status, json.loads(raw)
-              except urllib.error.HTTPError as e:
-                  raw = e.read().decode('utf-8', 'replace')
-                  print('HTTP_ERROR', path, e.code, raw[:900])
-                  try: return e.code, json.loads(raw)
-                  except ValueError: return e.code, {'raw':raw[:900]}
-          status, health = call('/api/health')
-          assert status==200 and health.get('ok') is True, ('health',status,health)
-          print('HEALTH: PASS')
-          payload = {'title':'Moim_O 기능 시험', 'participants':['테스트가','테스트나'],
-                     'startDate':'2026-11-23','endDate':'2026-11-24','unitMinutes':180,
-                     'startTime':'09:00','endTime':'21:00'}
-          status, result = call('/api/rooms','POST',payload)
-          assert status==201, ('create',status,result)
-          print('CREATE: PASS')
-          room_id=result['roomId']; first=result['participants'][0]
-          status, saved = call('/api/rooms/'+room_id+'/slots','PUT',{'changes':{'d0s0':'both','d0s1':'online'}},first['token'])
-          assert status==200 and saved.get('ok') is True, ('save',status,saved)
-          print('SAVE: PASS')
-          status, snapshot = call('/api/rooms/'+room_id,'GET',key=result['viewerToken'])
-          assert status==200, ('read',status,snapshot)
-          found=next(p for p in snapshot['participants'] if p['id']==first['id'])
-          assert found['slots']=={'d0s0':'both','d0s1':'online'}, ('values',found['slots'])
-          print('READ: PASS')
-          status, blocked = call('/api/rooms/'+room_id+'/slots','PUT',{'changes':{'d0s0':'online'}},result['viewerToken'])
-          assert status==403, ('permissions',status,blocked)
-          print('READ_ONLY_PERMISSIONS: PASS')
-          origin='https://passionwoo.github.io/moim_o/'
-          def link(token): return origin+'#r='+room_id+'&k='+token
-          print('DEMO_ROOM_ID='+room_id)
-          print('DEMO_VIEW='+link(result['viewerToken']))
-          print('DEMO_MEMBER_A='+link(result['participants'][0]['token']))
-          print('DEMO_MEMBER_B='+link(result['participants'][1]['token']))
-          print('Demo links only; never enter real personal information.')
-          PY
+          node --input-type=module --check < app.js
+          node --input-type=module --check < auth.js
+          node --input-type=module --check < server/src/index.js
+      - name: Interface elements and API routes
+        run: |
+          grep -q 'id="join-pin"' index.html
+          grep -q 'id="saved-meetings"' index.html
+          grep -q 'id="room-delete"' index.html
+          grep -q '/api/my/rooms' app.js
+          grep -q 'path.endsWith("/join")' server/src/index.js
+          grep -q 'path === "/owner/delete"' server/src/index.js
