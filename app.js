@@ -17,7 +17,7 @@ let names=Array.from({length:4},()=>({name:"",pin:""})),roomId="",secret="",room
 let view="start",connectionTimer=null, ownerUser=null, ownerRooms=[],accountRegister=false;
 const mobile=()=>matchMedia("(max-width:800px)").matches;
 function show(id) {
- for(const k of ["start","account","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
+ for(const k of ["start","account","recover","admin","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
  $("home-btn").classList.toggle("hidden",id==="start");
  view=id;
 }
@@ -197,6 +197,130 @@ function goHome(){
  room=null;roomId="";secret="";links=null;show("start");renderMyRooms();
 }
 $("home-btn").addEventListener("click",goHome);
+
+let adminSecret="";
+function adminRequest(path,{method="GET",data=null}={}){
+ const password=$("admin-key").value.trim()||adminSecret;
+ if(!password)throw Error("관리자 비밀키를 입력하세요.");
+ adminSecret=password;
+ return fetch(API+path,{method,headers:{"content-type":"application/json","X-Moimo-Admin":password},
+  ...(data!==null?{body:JSON.stringify(data)}:{})}).then(async r=>{
+    const b=await r.json().catch(()=>({}));
+    if(!r.ok)throw Error(b.error||"관리자 요청 실패");
+    return b;
+  });
+}
+function rowButton(text,fn,cls="small-button"){
+ const el=document.createElement("button");el.type="button";el.className=cls;el.textContent=text;el.addEventListener("click",fn);return el;
+}
+function clearAdminSecret(){
+ adminSecret="";$("admin-key").value="";$("admin-dashboard").classList.add("hidden");
+}
+function adminNote(message){$("admin-status").textContent=message}
+$("admin-open").addEventListener("click",()=>show("admin"));
+$("account-recover-open").addEventListener("click",()=>show("recover"));
+$("recover-submit").addEventListener("click",async()=>{
+ const code=$("recovery-code").value.trim(),password=$("recovery-password").value;
+ const el=$("recover-error");el.textContent="";
+ if(!code||password.length<8)return el.textContent="복구 코드와 8자 이상 새 비밀번호를 입력하세요.";
+ try{
+  const r=await request("/api/account/recover",{method:"POST",key:null,data:{recoveryCode:code,newPassword:password}});
+  $("recovery-code").value="";$("recovery-password").value="";
+  show("account");msg("비밀번호가 변경되었습니다. 다시 로그인하세요.");
+ }catch(e){el.textContent=e.message}
+});
+async function loadAdmin(){
+ adminNote("");
+ try{
+  const [rooms,accounts]=await Promise.all([
+    adminRequest("/api/admin/rooms"),adminRequest("/api/admin/accounts")
+  ]);
+  $("admin-dashboard").classList.remove("hidden");
+  $("admin-stats").textContent="활성 모임 "+rooms.total+"개 · 등록된 팀장 "+accounts.total+"명";
+  const list=$("admin-rooms");list.replaceChildren();
+  if(!rooms.rooms.length)list.textContent="현재 등록된 모임이 없습니다. 과거 생성된 모임은 자동 목록 등록 전일 수 있습니다.";
+  for(const m of rooms.rooms){
+   const row=document.createElement("div");row.className="saved-room";
+   const label=document.createElement("div");label.className="admin-row-info";
+   const heading=document.createElement("strong");heading.textContent=m.title||"모임";
+   const detail=document.createElement("span");
+   detail.textContent="팀장: "+m.owner+" · 참가자 "+m.participantCount+"명 · 만료 "+(m.expiresAt?new Date(m.expiresAt).toLocaleString("ko-KR"):"미확인");
+   label.append(heading,detail);
+   row.append(label,
+      rowButton("상세보기",()=>viewAdminRoom(m.roomId)),
+      rowButton("삭제",()=>deleteAdminRoom(m),"small-button delete-button"));
+   list.append(row);
+  }
+  const users=$("admin-accounts");users.replaceChildren();
+  if(!accounts.accounts.length)users.textContent="등록된 계정 목록이 없습니다. 기존 계정은 아래에서 아이디로 조회할 수 있습니다.";
+  for(const u of accounts.accounts){
+   const row=document.createElement("div");row.className="saved-room";
+   const label=document.createElement("strong");label.textContent=u.username;
+   label.className="admin-row-info";
+   row.append(label,
+     rowButton("복구 코드 재발급",()=>adminReset(u.username)),
+     rowButton("계정 삭제",()=>deleteAdminAccount(u.username),"small-button delete-button"));
+   users.append(row);
+  }
+ }catch(e){adminNote(e.message);$("admin-dashboard").classList.add("hidden")}
+}
+$("admin-connect").addEventListener("click",loadAdmin);
+$("admin-refresh").addEventListener("click",loadAdmin);
+$("admin-key").addEventListener("keydown",e=>{if(e.key==="Enter")loadAdmin()});
+$("admin-find").addEventListener("click",async()=>{
+ const name=$("admin-lookup").value.trim(),panel=$("admin-inspection");
+ panel.replaceChildren();
+ if(!name)return;
+ try{
+  const found=await adminRequest("/api/admin/account/find",{method:"POST",data:{username:name}});
+  const row=document.createElement("div");row.className="saved-room";
+  const label=document.createElement("strong");label.textContent="확인된 계정: "+found.username;
+  row.append(label,
+    rowButton("복구 코드 재발급",()=>adminReset(found.username)),
+    rowButton("계정 삭제",()=>deleteAdminAccount(found.username),"small-button delete-button"));
+  panel.append(row);
+  await loadAdmin();
+ }catch(e){panel.textContent=e.message}
+});
+async function viewAdminRoom(id){
+ try{
+  const d=await adminRequest("/api/admin/rooms/"+encodeURIComponent(id));
+  const panel=$("admin-inspection");panel.replaceChildren();
+  const h=document.createElement("h2");h.textContent=d.title+" · 참가자 일정 현황";
+  panel.append(h);
+  for(const member of d.participants){
+   const p=document.createElement("p");
+   const selected=Object.keys(member.slots||{}).length;
+   p.textContent=member.name+" · 선택한 시간 "+selected+"칸";
+   panel.append(p);
+  }
+  panel.scrollIntoView({behavior:"smooth",block:"nearest"});
+ }catch(e){adminNote(e.message)}
+}
+async function deleteAdminRoom(m){
+ if(!confirm("운영자 권한으로 ‘"+m.title+"’ 모임을 삭제합니까? 모든 참가자 일정과 링크가 삭제됩니다."))return;
+ if(prompt("삭제를 확정하려면 모임 이름을 정확히 입력하세요.")!==m.title)return;
+ try{
+  await adminRequest("/api/admin/rooms/"+encodeURIComponent(m.roomId),{method:"DELETE"});
+  await loadAdmin();msg("모임이 삭제되었습니다.");
+ }catch(e){adminNote(e.message)}
+}
+async function adminReset(username){
+ if(!confirm("‘"+username+"’ 계정의 복구 코드를 새로 발급합니까? 기존 복구 코드는 무효화됩니다."))return;
+ try{
+  const answer=await adminRequest("/api/admin/account/reset-code",{method:"POST",data:{username}});
+  window.prompt("복구 코드입니다. 해당 계정 소유자에게 본인 확인 후 별도로 전달하세요.",answer.recoveryCode);
+ }catch(e){adminNote(e.message)}
+}
+async function deleteAdminAccount(username){
+ if(!confirm("‘"+username+"’ 계정과 그 계정의 모든 모임을 삭제합니까?"))return;
+ if(prompt("모든 소유 모임과 계정이 영구 삭제됩니다. 계정 아이디를 정확히 입력하세요.")!==username)return;
+ try{
+  const result=await adminRequest("/api/admin/accounts/"+encodeURIComponent(username),{method:"DELETE"});
+  await loadAdmin();msg("계정 및 소유 모임 "+result.deletedRooms+"개 삭제 완료");
+ }catch(e){adminNote(e.message)}
+}
+
 $("google-login").addEventListener("click",()=>show("account"));
 $("google-logout").addEventListener("click",async()=>{await logoutAccount();goHome()});
 function updateAccountMode(register){
@@ -214,7 +338,13 @@ $("account-submit").addEventListener("click",async()=>{
  const button=$("account-submit");$("account-error").textContent="";
  if(username.length<3||password.length<8){$("account-error").textContent="아이디는 3자 이상, 비밀번호는 8자 이상 입력하세요.";return}
  button.disabled=true;
- try{await loginAccount(username,password,accountRegister);$("account-password").value="";goHome()}
+ try{
+   const result=await loginAccount(username,password,accountRegister);
+   $("account-password").value="";goHome();
+   if(accountRegister&&result.recoveryCode){
+     window.prompt("계정 복구 코드입니다. 꼭 안전한 장소에 보관하세요. 이 코드를 분실하면 직접 복구할 수 없습니다.",result.recoveryCode);
+   }
+  }
  catch(e){$("account-error").textContent=e.message}finally{button.disabled=false}
 });
 for(const id of ["account-username","account-password"])
