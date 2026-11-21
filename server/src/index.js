@@ -60,7 +60,7 @@ function allowedOrigin(request) {
   return false;
 }
 function corsHeaders(origin) {
-  return origin ? { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type, authorization, x-firebase-token", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "vary": "Origin" } : {};
+  return origin ? { "access-control-allow-origin": origin, "access-control-allow-headers": "content-type, authorization, x-moimo-user, x-moimo-session", "access-control-allow-methods": "GET, POST, PUT, DELETE, OPTIONS", "vary": "Origin" } : {};
 }
 function authToken(request) {
   const match = /^Bearer ([A-Za-z0-9_-]{40,64})$/.exec(request.headers.get("Authorization") || "");
@@ -72,58 +72,43 @@ async function parseBody(request) {
   catch { return null; }
 }
 
-const FIREBASE_PROJECT = "team-schedule-45f53";
-const FIREBASE_JWK = "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com";
-let signingKeys = [], keysExpire = 0;
-function decodeBase64Url(str) {
-  if (typeof str !== "string" || !/^[A-Za-z0-9_-]+$/.test(str)) throw Error("bad encoding");
-  const base = str.replace(/-/g,"+").replace(/_/g,"/");
-  return Uint8Array.from(atob(base+"=".repeat((4-base.length%4)%4)),c=>c.charCodeAt(0));
+
+const ROOM_LIFETIME_MS=60*24*60*60*1000;
+function usernameOf(value) {
+  if(typeof value!=="string")return "";
+  const name=value.trim().normalize("NFKC").toLowerCase();
+  return name.length>=3 && name.length<=24 && /^[\p{L}\p{N}_.-]+$/u.test(name)?name:"";
 }
-function decodePart(v) {return JSON.parse(new TextDecoder().decode(decodeBase64Url(v)));}
-async function getSigningKey(kid) {
-  if (!signingKeys.length || keysExpire < Date.now() || !signingKeys.some(k=>k.kid===kid)) {
-    const response=await fetch(FIREBASE_JWK);
-    if (!response.ok) throw Error("verification unavailable");
-    signingKeys=(await response.json()).keys||[];
-    keysExpire=Date.now()+45*60*1000;
-  }
-  return signingKeys.find(k=>k.kid===kid);
-}
-async function verifiedOwner(request) {
-  const value=request.headers.get("X-Firebase-Token")||"";
-  if (value.length<100 || value.length>10000) return null;
-  try {
-    const bits=value.split(".");
-    if(bits.length!==3) return null;
-    const h=decodePart(bits[0]), c=decodePart(bits[1]);
-    const now=Math.floor(Date.now()/1000);
-    if(h.alg!=="RS256" || !h.kid || c.aud!==FIREBASE_PROJECT ||
-       c.iss!=="https://securetoken.google.com/"+FIREBASE_PROJECT ||
-       typeof c.sub!=="string" || !c.sub || c.sub.length>128 ||
-       !Number.isFinite(c.exp) || c.exp<=now || !Number.isFinite(c.iat) || c.iat>now+60 ||
-       !Number.isFinite(c.auth_time) || c.firebase?.sign_in_provider!=="google.com") return null;
-    const jwk=await getSigningKey(h.kid);
-    if(!jwk) return null;
-    const key=await crypto.subtle.importKey("jwk",jwk,{name:"RSASSA-PKCS1-v1_5",hash:"SHA-256"},false,["verify"]);
-    const good=await crypto.subtle.verify("RSASSA-PKCS1-v1_5",key,decodeBase64Url(bits[2]),
-      new TextEncoder().encode(bits[0]+"."+bits[1]));
-    return good ? c.sub : null;
-  }catch{return null;}
+function passwordAllowed(value){return typeof value==="string"&&value.length>=8&&value.length<=128}
+async function passwordHash(password,salt){
+  const key=await crypto.subtle.importKey("raw",new TextEncoder().encode(password),"PBKDF2",false,["deriveBits"]);
+  const bits=await crypto.subtle.deriveBits({name:"PBKDF2",salt:new TextEncoder().encode(salt),iterations:80000,hash:"SHA-256"},key,256);
+  return Array.from(new Uint8Array(bits),x=>x.toString(16).padStart(2,"0")).join("");
 }
 function accountStub(env,uid){return env.ROOMS.get(env.ROOMS.idFromName("__moimo_user_"+uid));}
-async function internalRequest(stub,path,data=null) {
+async function internalRequest(stub,path,data=null,extra={}){
   return stub.fetch(new Request("https://internal/"+path,{
-    method:data===null?"GET":"POST",
-    headers:{"content-type":"application/json"},
+    method:data===null?"GET":"POST",headers:{"content-type":"application/json",...extra},
     ...(data===null?{}:{body:JSON.stringify(data)})
   }));
 }
 function corsResponse(response,cors){
   const headers=new Headers(response.headers);
-  for(const [k,v] of Object.entries(cors)) headers.set(k,v);
+  for(const [k,v] of Object.entries(cors))headers.set(k,v);
   headers.set("cache-control","no-store");
   return new Response(response.body,{status:response.status,headers});
+}
+async function verifiedOwner(request,env){
+  const username=usernameOf(request.headers.get("X-Moimo-User"));
+  const session=request.headers.get("X-Moimo-Session")||"";
+  if(!username||!/^[A-Za-z0-9_-]{40,64}$/.test(session))return null;
+  const result=await internalRequest(accountStub(env,"acct:"+username),"account/validate",{session});
+  return result.ok?"acct:"+username:null;
+}
+async function creationLimit(env,request){
+ const stub=env.ROOMS.get(env.ROOMS.idFromName("__moimo_creation_gate"));
+ const response=await internalRequest(stub,"rate",{ip:request.headers.get("CF-Connecting-IP")||"local"});
+ return response.ok;
 }
 
 export default {
@@ -135,14 +120,37 @@ export default {
     const url = new URL(request.url);
     if (url.pathname === "/api/health" && request.method === "GET") return json({ ok: true, app: "Moim_O" }, 200, cors);
 
+    if (url.pathname === "/api/account/register" && request.method === "POST" ||
+        url.pathname === "/api/account/login" && request.method === "POST") {
+      const input=await parseBody(request);
+      const username=usernameOf(input?.username),password=input?.password;
+      if(!username||!passwordAllowed(password))return json({error:"아이디는 3~24자, 비밀번호는 8자 이상이어야 합니다."},400,cors);
+      if(url.pathname.endsWith("/register") && !await creationLimit(env,request))
+        return json({error:"가입 시도가 너무 많습니다. 잠시 후 다시 시도하세요."},429,cors);
+      const action=url.pathname.endsWith("/register")?"register":"login";
+      const result=await internalRequest(accountStub(env,"acct:"+username),"account/"+action,{username,password});
+      return corsResponse(result,cors);
+    }
+    if(url.pathname === "/api/account/me" && request.method === "GET"){
+      const uid=await verifiedOwner(request,env);
+      return uid?json({username:uid.slice(5)},200,cors):json({error:"로그인이 필요합니다."},401,cors);
+    }
+    if(url.pathname === "/api/account/logout" && request.method === "POST"){
+      const uid=await verifiedOwner(request,env);
+      if(!uid)return json({ok:true},200,cors);
+      const response=await internalRequest(accountStub(env,uid),"account/logout",{session:request.headers.get("X-Moimo-Session")});
+      return corsResponse(response,cors);
+    }
+
+
     if (url.pathname === "/api/my/rooms" && request.method === "GET") {
-      const uid=await verifiedOwner(request);
-      if(!uid) return json({error:"구글 로그인이 필요합니다."},401,cors);
+      const uid=await verifiedOwner(request,env);
+      if(!uid) return json({error:"로그인이 필요합니다."},401,cors);
       return corsResponse(await internalRequest(accountStub(env,uid),"account/list"),cors);
     }
     if (url.pathname === "/api/my/claim" && request.method === "POST") {
-      const uid=await verifiedOwner(request);
-      if(!uid) return json({error:"구글 로그인이 필요합니다."},401,cors);
+      const uid=await verifiedOwner(request,env);
+      if(!uid) return json({error:"로그인이 필요합니다."},401,cors);
       const input=await parseBody(request);
       if(!input || !/^[\w-]{12,24}$/.test(input.roomId||"") ||
          !/^[\w-]{40,64}$/.test(input.managerToken||"")) return json({error:"관리 링크를 확인해 주세요."},400,cors);
@@ -151,7 +159,7 @@ export default {
       if(!result.ok) return corsResponse(result,cors);
       const info=await result.json();
       const entry={roomId:input.roomId, title:info.title, startDate:info.startDate,
-        endDate:info.endDate, managerToken:input.managerToken};
+        endDate:info.endDate, managerToken:input.managerToken, expiresAt:info.expiresAt};
       const added=await internalRequest(accountStub(env,uid),"account/add",entry);
       if(!added.ok) return json({error:"모임 계정 연결을 저장하지 못했습니다."},500,cors);
       return json({ok:true},200,cors);
@@ -169,16 +177,12 @@ export default {
     }
 
     if (url.pathname === "/api/rooms" && request.method === "POST") {
-      const uid=await verifiedOwner(request);
-      if(!uid) return json({error:"모임 생성은 구글 로그인이 필요합니다."},401,cors);
+      const uid=await verifiedOwner(request,env);
+      if(!uid) return json({error:"모임 생성은 로그인이 필요합니다."},401,cors);
       const raw = await parseBody(request);
       const checked = validateNew(raw);
       if (!checked) return json({ error: "모임 정보를 확인해 주세요. (최대 30명·31일·하루 96칸)" }, 400, cors);
-      const gate = env.ROOMS.get(env.ROOMS.idFromName("__moimo_creation_gate"));
-      const gateRes = await gate.fetch(new Request("https://internal/rate", {
-        method: "POST", body: JSON.stringify({ ip: request.headers.get("CF-Connecting-IP") || "local" })
-      }));
-      if (!gateRes.ok) return json({ error: "모임 생성이 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요." }, 429, cors);
+      if(!await creationLimit(env,request))return json({error:"모임 생성이 잠시 제한되었습니다. 잠시 후 다시 시도해 주세요."},429,cors);
       const roomId = token().slice(0, 16);
       const managerToken = token(), viewerToken = token();
       const participants = await Promise.all(checked.participants.map(async (p,i)=>{
@@ -188,14 +192,14 @@ export default {
       const stub = env.ROOMS.get(env.ROOMS.idFromName(roomId));
       const result = await stub.fetch(new Request("https://internal/init", {
         method: "POST", headers: { "content-type": "application/json" },
-        body: JSON.stringify({ config: { title: checked.title, dates: checked.dates,
+        body: JSON.stringify({ config: { roomId, title: checked.title, dates: checked.dates,
           startTime: checked.startTime, endTime: checked.endTime, unitMinutes: checked.unitMinutes },
           managerHash: await hash(managerToken), viewerHash: await hash(viewerToken),
           ownerUid:uid,
           participants:participants.map(p=>({id:p.id,name:p.name,pinSalt:p.pinSalt,pinHash:p.pinHash})) })
       }));
       if (!result.ok) return json({ error: "모임 생성에 실패했습니다." }, 500, cors);
-      const entry={roomId,title:checked.title,startDate:checked.dates[0],endDate:checked.dates.at(-1),managerToken};
+      const entry={roomId,title:checked.title,startDate:checked.dates[0],endDate:checked.dates.at(-1),managerToken,expiresAt:Date.now()+ROOM_LIFETIME_MS};
       const record=await internalRequest(accountStub(env,uid),"account/add",entry);
       if(!record.ok) return json({error:"모임은 생성되었지만 내 모임 저장에 실패했습니다.",roomId,managerToken},500,cors);
       return json({roomId,managerToken,participants:participants.map(p=>({id:p.id,name:p.name}))},201,cors);
@@ -215,20 +219,62 @@ export default {
 export class Room extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
+    this.env = env;
     this.sql = ctx.storage.sql;
     this.sql.exec("CREATE TABLE IF NOT EXISTS meta (id INTEGER PRIMARY KEY, config TEXT NOT NULL, manager_hash TEXT NOT NULL, viewer_hash TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS people (id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL, slots TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, window INTEGER NOT NULL, hits INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS user_rooms (room_id TEXT PRIMARY KEY, details TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS accounts (username TEXT PRIMARY KEY, salt TEXT NOT NULL, password_hash TEXT NOT NULL, created_at INTEGER NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS account_sessions (token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS deleted_rooms (id INTEGER PRIMARY KEY, at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, participant_id TEXT NOT NULL, expires_at INTEGER NOT NULL)");
     const metaCols=[...this.sql.exec("PRAGMA table_info(meta)")];
     if(!metaCols.some(c=>c.name==="owner_uid")) this.sql.exec("ALTER TABLE meta ADD COLUMN owner_uid TEXT");
+    if(!metaCols.some(c=>c.name==="created_at")) this.sql.exec("ALTER TABLE meta ADD COLUMN created_at INTEGER");
+    if(!metaCols.some(c=>c.name==="expires_at")) this.sql.exec("ALTER TABLE meta ADD COLUMN expires_at INTEGER");
     const peopleCols=[...this.sql.exec("PRAGMA table_info(people)")];
     if(!peopleCols.some(c=>c.name==="pin_hash")) this.sql.exec("ALTER TABLE people ADD COLUMN pin_hash TEXT");
     if(!peopleCols.some(c=>c.name==="pin_salt")) this.sql.exec("ALTER TABLE people ADD COLUMN pin_salt TEXT");
   }
   meta() { return [...this.sql.exec("SELECT * FROM meta WHERE id=1")][0] || null; }
+  async expireIfNeeded() {
+    const m=this.meta();
+    if(!m)return false;
+    if(!m.expires_at){
+      // Pre-migration rooms lack creation timestamps; start their retention clock on first access.
+      const created=Date.now(),expires=created+ROOM_LIFETIME_MS;
+      this.sql.exec("UPDATE meta SET created_at=?,expires_at=? WHERE id=1",created,expires);
+      await this.ctx.storage.setAlarm(expires);
+      return false;
+    }
+    if(m.expires_at<=Date.now()){await this.destroyRoom(m);return true}
+    if(await this.ctx.storage.getAlarm()===null)await this.ctx.storage.setAlarm(m.expires_at);
+    return false;
+  }
+  async destroyRoom(m) {
+    for(const ws of this.ctx.getWebSockets())try{ws.close(4002,"모임 만료 또는 삭제")}catch{}
+    this.sql.exec("DELETE FROM people");
+    this.sql.exec("DELETE FROM sessions");
+    this.sql.exec("DELETE FROM limits");
+    this.sql.exec("DELETE FROM meta");
+    this.sql.exec("INSERT OR REPLACE INTO deleted_rooms(id,at) VALUES(1,?)",Date.now());
+    if(m.owner_uid){
+      try{
+        const identifier=JSON.parse(m.config).roomId;
+        if(identifier)await internalRequest(accountStub(this.env,m.owner_uid),"account/remove",{roomId:identifier});
+      }catch{}
+    }
+    await this.ctx.storage.deleteAlarm();
+  }
+  async alarm() {
+    const m=this.meta();
+    if(!m)return;
+    if(m.expires_at && m.expires_at>Date.now()){
+      await this.ctx.storage.setAlarm(m.expires_at);return;
+    }
+    await this.destroyRoom(m);
+  }
   people() { return [...this.sql.exec("SELECT * FROM people ORDER BY rowid")]; }
   async identify(value) {
     if (!value) return null;
@@ -256,8 +302,50 @@ export class Room extends DurableObject {
   async fetch(request) {
     const path = new URL(request.url).pathname;
 
+
+    if(path === "/account/register" && request.method === "POST"){
+      const b=await parseBody(request);
+      if(!usernameOf(b?.username)||!passwordAllowed(b?.password))return fail("아이디나 비밀번호가 올바르지 않습니다.");
+      if([...this.sql.exec("SELECT username FROM accounts LIMIT 1")].length)return fail("이미 사용 중인 아이디입니다.",409);
+      const salt=token(),digest=await passwordHash(b.password,salt);
+      this.sql.exec("INSERT INTO accounts(username,salt,password_hash,created_at) VALUES(?,?,?,?)",b.username,salt,digest,Date.now());
+      const session=token();
+      this.sql.exec("INSERT INTO account_sessions(token_hash,expires_at) VALUES(?,?)",await hash(session),Date.now()+30*86400000);
+      return json({username:b.username,session},201);
+    }
+    if(path === "/account/login" && request.method === "POST"){
+      const b=await parseBody(request), bucket=Math.floor(Date.now()/900000),k="failed-logins";
+      if(!passwordAllowed(b?.password))return fail("아이디 또는 비밀번호가 올바르지 않습니다.",401);
+      const attempt=[...this.sql.exec("SELECT window,hits FROM limits WHERE key=?",k)][0];
+      if(attempt?.window===bucket&&attempt.hits>=8)return fail("로그인 시도가 너무 많습니다. 15분 뒤에 다시 시도하세요.",429);
+      const row=[...this.sql.exec("SELECT username,salt,password_hash FROM accounts LIMIT 1")][0];
+      const good=row && await passwordHash(b.password,row.salt)===row.password_hash;
+      if(!good){
+        this.sql.exec("INSERT INTO limits(key,window,hits) VALUES(?,?,1) ON CONFLICT(key) DO UPDATE SET window=excluded.window,hits=CASE WHEN limits.window=excluded.window THEN limits.hits+1 ELSE 1 END",k,bucket);
+        return fail("아이디 또는 비밀번호가 올바르지 않습니다.",401);
+      }
+      this.sql.exec("DELETE FROM limits WHERE key=?",k);
+      const session=token();
+      this.sql.exec("DELETE FROM account_sessions WHERE expires_at<?",Date.now());
+      this.sql.exec("INSERT INTO account_sessions(token_hash,expires_at) VALUES(?,?)",await hash(session),Date.now()+30*86400000);
+      return json({username:row.username,session});
+    }
+    if(path === "/account/validate" && request.method === "POST"){
+      const b=await parseBody(request);
+      if(!/^[\w-]{40,64}$/.test(b?.session||""))return fail("세션 만료",401);
+      const row=[...this.sql.exec("SELECT expires_at FROM account_sessions WHERE token_hash=?",await hash(b.session))][0];
+      return row&&row.expires_at>Date.now()?json({ok:true}):fail("세션 만료",401);
+    }
+    if(path === "/account/logout" && request.method === "POST"){
+      const b=await parseBody(request);
+      if(/^[\w-]{40,64}$/.test(b?.session||""))this.sql.exec("DELETE FROM account_sessions WHERE token_hash=?",await hash(b.session));
+      return json({ok:true});
+    }
+
     if (path === "/account/list" && request.method === "GET") {
-      const rooms=[...this.sql.exec("SELECT details FROM user_rooms ORDER BY rowid DESC")].map(row=>JSON.parse(row.details));
+      const all=[...this.sql.exec("SELECT details FROM user_rooms ORDER BY rowid DESC")].map(row=>JSON.parse(row.details));
+      const rooms=all.filter(r=>!r.expiresAt||r.expiresAt>Date.now());
+      for(const r of all)if(r.expiresAt&&r.expiresAt<=Date.now())this.sql.exec("DELETE FROM user_rooms WHERE room_id=?",r.roomId);
       return json({rooms});
     }
     if (path === "/account/add" && request.method === "POST") {
@@ -279,21 +367,17 @@ export class Room extends DurableObject {
       if(!m) return fail("모임 없음",404);
       if(!b?.uid || typeof b.managerToken!=="string" ||
          await hash(b.managerToken)!==m.manager_hash) return fail("팀장 링크가 올바르지 않습니다.",403);
-      if(m.owner_uid && m.owner_uid!==b.uid) return fail("다른 계정에 연결된 모임입니다.",403);
-      if(!m.owner_uid)this.sql.exec("UPDATE meta SET owner_uid=? WHERE id=1",b.uid);
+      if(m.owner_uid && m.owner_uid!==b.uid && m.owner_uid.startsWith("acct:")) return fail("다른 계정에 연결된 모임입니다.",403);
+      if(m.owner_uid!==b.uid)this.sql.exec("UPDATE meta SET owner_uid=? WHERE id=1",b.uid);
       const cfg=JSON.parse(m.config);
-      return json({ok:true,title:cfg.title,startDate:cfg.dates[0],endDate:cfg.dates.at(-1)});
+      return json({ok:true,title:cfg.title,startDate:cfg.dates[0],endDate:cfg.dates.at(-1),expiresAt:m.expires_at||Date.now()+ROOM_LIFETIME_MS});
     }
     if (path === "/owner/delete" && request.method === "POST") {
       const b=await parseBody(request), m=this.meta();
       if(!m) return fail("모임을 찾을 수 없습니다.",404);
       if(m.owner_uid ? b?.uid!==m.owner_uid :
         (!b?.managerToken || await hash(b.managerToken)!==m.manager_hash)) return fail("모임 삭제 권한이 없습니다.",403);
-      this.sql.exec("INSERT OR REPLACE INTO deleted_rooms(id,at) VALUES(1,?)",Date.now());
-      this.sql.exec("DELETE FROM people");
-      this.sql.exec("DELETE FROM sessions");
-      this.sql.exec("DELETE FROM meta");
-      for(const socket of this.ctx.getWebSockets()) try{socket.close(4002,"모임이 삭제되었습니다.")}catch{}
+      await this.destroyRoom(m);
       return json({ok:true,ownerUid:m.owner_uid||null});
     }
 
@@ -320,13 +404,16 @@ export class Room extends DurableObject {
       if (this.meta() || [...this.sql.exec("SELECT id FROM deleted_rooms WHERE id=1")].length) return fail("이미 존재하거나 삭제된 모임입니다.",409);
       const b = await parseBody(request);
       if (!b?.config || !b.managerHash || !b.viewerHash || !Array.isArray(b.participants)) return fail("잘못된 입력");
-      this.sql.exec("INSERT INTO meta(id,config,manager_hash,viewer_hash,owner_uid) VALUES(1,?,?,?,?)",
-        JSON.stringify(b.config),b.managerHash,b.viewerHash,b.ownerUid||null);
+      const created=Date.now(), expires=created+ROOM_LIFETIME_MS;
+      this.sql.exec("INSERT INTO meta(id,config,manager_hash,viewer_hash,owner_uid,created_at,expires_at) VALUES(1,?,?,?,?,?,?)",
+        JSON.stringify(b.config),b.managerHash,b.viewerHash,b.ownerUid||null,created,expires);
+      await this.ctx.storage.setAlarm(expires);
       for(const p of b.participants) this.sql.exec(
         "INSERT INTO people(id,name,token_hash,slots,pin_hash,pin_salt) VALUES(?,?,?,?,?,?)",
         p.id,p.name,p.tokenHash||"","{}",p.pinHash||null,p.pinSalt||null);
       return json({ok:true},201);
     }
+    if (await this.expireIfNeeded()) return fail("모임이 60일 보관 기간 만료로 삭제되었습니다.",410);
     if (!this.meta()) return fail("모임을 찾을 수 없습니다.",404);
 
     if (path.endsWith("/public") && request.method === "GET") {
