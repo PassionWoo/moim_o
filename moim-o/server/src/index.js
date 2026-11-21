@@ -40,7 +40,7 @@ function validateNew(data) {
   const names = data.participants;
   if (!title || !Array.isArray(names) || names.length < 1 || names.length > MAX_MEMBERS ||
       names.some(n => !cleanName(n) || n.trim().length > 30)) return null;
-  const members = names.map(n => cleanName(n));
+  const members = names.map(n => cleanName(n)).sort((a,b) => a.localeCompare(b, "ko"));
   if (new Set(members).size !== members.length) return null;
   const dates = makeDates(data.startDate, data.endDate);
   const begin = minutes(data.startTime), end = minutes(data.endTime);
