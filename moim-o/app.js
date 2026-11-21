@@ -192,7 +192,7 @@ function renderSlots(){
   }
   body+='</tr>';
  }
- $("table-wrap").innerHTML='<table class="schedule"><caption class="hidden">모임 시간표</caption>'+head+'<tbody>'+body+'</tbody></table>';
+ $("table-wrap").innerHTML='<table class="schedule" style="min-width:'+Math.max(400,135+visible.length*150)+'px"><caption class="hidden">모임 시간표</caption>'+head+'<tbody>'+body+'</tbody></table>';
 }
 function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function paintAt(x,y){
