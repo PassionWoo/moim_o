@@ -1,0 +1,59 @@
+name: Moim_O API test
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/moimo-test.yml'
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create and verify a demonstration meeting
+        shell: bash
+        env:
+          API: https://moim-o-api.w862589.workers.dev
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, json, urllib.request, urllib.error
+          api = os.environ['API']
+          def call(path, method='GET', data=None, key=None):
+              headers = {'Origin': 'https://passionwoo.github.io', 'Content-Type':'application/json'}
+              if key: headers['Authorization'] = 'Bearer ' + key
+              body = json.dumps(data).encode() if data is not None else None
+              req = urllib.request.Request(api+path, data=body, method=method, headers=headers)
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      return r.status, json.loads(r.read())
+              except urllib.error.HTTPError as e:
+                  return e.code, json.loads(e.read())
+          status, health = call('/api/health')
+          assert status==200 and health.get('ok') is True, ('health',status,health)
+          print('HEALTH: PASS')
+          payload = {'title':'Moim_O 기능 시험', 'participants':['테스트가','테스트나'],
+                     'startDate':'2026-11-23','endDate':'2026-11-24','unitMinutes':180,
+                     'startTime':'09:00','endTime':'21:00'}
+          status, result = call('/api/rooms','POST',payload)
+          assert status==201, ('create',status,result)
+          print('CREATE: PASS')
+          room_id=result['roomId']; first=result['participants'][0]
+          status, saved = call('/api/rooms/'+room_id+'/slots','PUT',{'changes':{'d0s0':'both','d0s1':'online'}},first['token'])
+          assert status==200 and saved.get('ok') is True, ('save',status,saved)
+          print('SAVE: PASS')
+          status, snapshot = call('/api/rooms/'+room_id,'GET',key=result['viewerToken'])
+          assert status==200, ('read',status,snapshot)
+          found=next(p for p in snapshot['participants'] if p['id']==first['id'])
+          assert found['slots']=={'d0s0':'both','d0s1':'online'}, ('values',found['slots'])
+          print('READ: PASS')
+          status, blocked = call('/api/rooms/'+room_id+'/slots','PUT',{'changes':{'d0s0':'online'}},result['viewerToken'])
+          assert status==403, ('permissions',status,blocked)
+          print('READ_ONLY_PERMISSIONS: PASS')
+          origin='https://passionwoo.github.io/moim_o/'
+          def link(token): return origin+'#r='+room_id+'&k='+token
+          print('DEMO_ROOM_ID='+room_id)
+          print('DEMO_VIEW='+link(result['viewerToken']))
+          print('DEMO_MEMBER_A='+link(result['participants'][0]['token']))
+          print('DEMO_MEMBER_B='+link(result['participants'][1]['token']))
+          print('Demo links only; never enter real personal information.')
+          PY
