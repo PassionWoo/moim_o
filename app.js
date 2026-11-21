@@ -17,7 +17,7 @@ let names=Array.from({length:4},()=>({name:"",pin:""})),roomId="",secret="",room
 let view="start",connectionTimer=null, ownerUser=null, ownerRooms=[],accountRegister=false;
 const mobile=()=>matchMedia("(max-width:800px)").matches;
 function show(id) {
- for(const k of ["start","account","recovery-issued","recover","admin","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
+ for(const k of ["start","account","admin","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
  $("home-btn").classList.toggle("hidden",id==="start");
  view=id;
 }
@@ -221,50 +221,6 @@ function adminNote(message){$("admin-status").textContent=message}
 // Its URL is only an entry point; Cloudflare checks the admin secret on every API call.
 
 
-let hasCopiedRecovery=false;
-function displayRecoveryCode(value){
- hasCopiedRecovery=false;
- $("issued-recovery-code").value=value;
- $("recovery-confirm").disabled=false;
- show("recovery-issued");
-}
-$("recovery-copy").addEventListener("click",async()=>{
- const value=$("issued-recovery-code").value;
- if(!value)return;
- try{
-  await navigator.clipboard.writeText(value);
-  hasCopiedRecovery=true;
-  msg("복구 코드가 복사되었습니다. 안전한 곳에 보관하세요.");
- }catch{
-  $("issued-recovery-code").select();
-  msg("복구 코드를 선택했습니다. 직접 복사해 보관하세요.");
- }
-});
-$("recovery-confirm").addEventListener("click",()=>{
- if(!confirm("복구 코드를 별도로 저장했습니까? 이 화면에서 나가면 코드를 다시 확인할 수 없습니다."))return;
- $("issued-recovery-code").value="";
- goHome();
-});
-$("recovery-rotate").addEventListener("click",async()=>{
- if(!ownerUser){show("account");return}
- if(!confirm("새 복구 코드를 발급하면 이전 복구 코드는 무효화됩니다. 계속할까요?"))return;
- try{
-  const r=await request("/api/account/recovery/rotate",{method:"POST",key:null,owner:true,data:{}});
-  displayRecoveryCode(r.recoveryCode);
- }catch(e){msg(e.message)}
-});
-
-$("account-recover-open").addEventListener("click",()=>show("recover"));
-$("recover-submit").addEventListener("click",async()=>{
- const code=$("recovery-code").value.trim(),password=$("recovery-password").value;
- const el=$("recover-error");el.textContent="";
- if(!code||password.length<8)return el.textContent="복구 코드와 8자 이상 새 비밀번호를 입력하세요.";
- try{
-  const r=await request("/api/account/recover",{method:"POST",key:null,data:{recoveryCode:code,newPassword:password}});
-  $("recovery-code").value="";$("recovery-password").value="";
-  show("account");msg("비밀번호가 변경되었습니다. 다시 로그인하세요.");
- }catch(e){el.textContent=e.message}
-});
 async function loadAdmin(){
  adminNote("");
  try{
@@ -294,7 +250,6 @@ async function loadAdmin(){
    const label=document.createElement("strong");label.textContent=u.username;
    label.className="admin-row-info";
    row.append(label,
-     rowButton("복구 코드 재발급",()=>adminReset(u.username)),
      rowButton("계정 삭제",()=>deleteAdminAccount(u.username),"small-button delete-button"));
    users.append(row);
   }
@@ -312,7 +267,6 @@ $("admin-find").addEventListener("click",async()=>{
   const row=document.createElement("div");row.className="saved-room";
   const label=document.createElement("strong");label.textContent="확인된 계정: "+found.username;
   row.append(label,
-    rowButton("복구 코드 재발급",()=>adminReset(found.username)),
     rowButton("계정 삭제",()=>deleteAdminAccount(found.username),"small-button delete-button"));
   panel.append(row);
   await loadAdmin();
@@ -339,13 +293,6 @@ async function deleteAdminRoom(m){
  try{
   await adminRequest("/api/admin/rooms/"+encodeURIComponent(m.roomId),{method:"DELETE"});
   await loadAdmin();msg("모임이 삭제되었습니다.");
- }catch(e){adminNote(e.message)}
-}
-async function adminReset(username){
- if(!confirm("‘"+username+"’ 계정의 복구 코드를 새로 발급합니까? 기존 복구 코드는 무효화됩니다."))return;
- try{
-  const answer=await adminRequest("/api/admin/account/reset-code",{method:"POST",data:{username}});
-  window.prompt("복구 코드입니다. 해당 계정 소유자에게 본인 확인 후 별도로 전달하세요.",answer.recoveryCode);
  }catch(e){adminNote(e.message)}
 }
 async function deleteAdminAccount(username){
@@ -375,10 +322,9 @@ $("account-submit").addEventListener("click",async()=>{
  if(username.length<3||password.length<8){$("account-error").textContent="아이디는 3자 이상, 비밀번호는 8자 이상 입력하세요.";return}
  button.disabled=true;
  try{
-   const result=await loginAccount(username,password,accountRegister);
-   $("account-password").value="";
-   if(accountRegister&&result.recoveryCode)displayRecoveryCode(result.recoveryCode);
-   else goHome();
+   await loginAccount(username,password,accountRegister);
+    $("account-password").value="";
+    goHome();
   }
  catch(e){$("account-error").textContent=e.message}finally{button.disabled=false}
 });
