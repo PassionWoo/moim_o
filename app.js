@@ -1,4 +1,4 @@
-import {auth, loginGoogle, logoutGoogle, onAuthStateChanged, ownerIdToken} from "./auth.js";
+import {auth, loginAccount, logoutAccount, onAuthStateChanged, ownerHeaders, initializeAuth} from "./auth.js";
 const $=id=>document.getElementById(id);
 const API=(window.MOIMO_API_URL||"").replace(/\/$/,"");
 const WEEK=["일","월","화","수","목","금","토"];
@@ -14,10 +14,10 @@ const toMin=s=>{const [h,m]=s.split(":").map(Number);return h*60+m};
 const randomHash=()=>location.hash.slice(1);
 let month=new Date(initialDate.getFullYear(),initialDate.getMonth(),1),rangeStart=null,rangeEnd=null;
 let names=Array.from({length:4},()=>({name:"",pin:""})),roomId="",secret="",room=null,links=null,selected="",paintColor="both",painting=false,pending={},saveTimer=null,ws=null,dayIndex=0,manualClose=false;
-let view="start",connectionTimer=null, ownerUser=null, ownerRooms=[];
+let view="start",connectionTimer=null, ownerUser=null, ownerRooms=[],accountRegister=false;
 const mobile=()=>matchMedia("(max-width:800px)").matches;
 function show(id) {
- for(const k of ["start","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
+ for(const k of ["start","account","join","create","share","room"])$(k+"-view").classList.toggle("hidden",k!==id);
  $("home-btn").classList.toggle("hidden",id==="start");
  view=id;
 }
@@ -97,7 +97,7 @@ async function request(path,{method="GET",data=null,key=secret,owner=false}={}){
  if(!API)throw Error("서버 연결 설정이 필요합니다.");
  const headers={"content-type":"application/json"};
  if(key) headers.authorization="Bearer "+key;
- if(owner) headers["X-Firebase-Token"]=await ownerIdToken();
+ if(owner) Object.assign(headers,ownerHeaders());
  const res=await fetch(API+path,{method,headers,...(data!==null?{body:JSON.stringify(data)}:{})});
  const answer=await res.json().catch(()=>({}));
  if(!res.ok)throw Error(answer.error||"요청 실패");
@@ -114,7 +114,7 @@ function renderShareRows(target){
  const el=$(target);el.replaceChildren();
  const row=document.createElement("div");row.className="share-row";
  const name=document.createElement("strong");name.textContent="모임 참여 링크";
- const button=document.createElement("button");button.type="button";button.textContent="복사";
+ const button=document.createElement("button");button.type="button";button.textContent="모임 링크 복사하기";
  button.addEventListener("click",()=>copy(sharedURL(roomId)));
  row.append(name,button);el.append(row);
 }
@@ -137,12 +137,14 @@ function renderMyRooms(){
   const row=document.createElement("div");row.className="saved-room";
   const main=document.createElement("button");main.className="saved-room-open";main.type="button";
   const title=document.createElement("strong");title.textContent=entry.title;
-  const subtitle=document.createElement("span");subtitle.textContent=entry.startDate+" ~ "+entry.endDate;
+  const subtitle=document.createElement("span");subtitle.textContent=entry.startDate+" ~ "+entry.endDate+(entry.expiresAt?" · "+new Date(entry.expiresAt).toLocaleDateString("ko-KR")+" 자동 삭제":"");
   main.append(title,subtitle);
   main.addEventListener("click",()=>enterManagedRoom(entry));
   const del=document.createElement("button");del.type="button";del.className="small-button delete-button";del.textContent="삭제";
   del.addEventListener("click",()=>deleteManagedRoom(entry));
-  row.append(main,del);list.append(row);
+  const copyButton=document.createElement("button");copyButton.type="button";copyButton.className="small-button copy-meeting";copyButton.textContent="모임 링크 복사하기";
+  copyButton.addEventListener("click",()=>copy(sharedURL(entry.roomId)));
+  row.append(main,copyButton,del);list.append(row);
  }
 }
 async function enterManagedRoom(entry){
@@ -186,7 +188,7 @@ $("join-submit").addEventListener("click",async()=>{
  }catch(e){$("join-error").textContent=e.message}finally{button.disabled=false}
 });
 $("create-open").addEventListener("click",()=>{
- if(!ownerUser)return msg("구글 로그인 후 모임을 만들 수 있습니다.");
+ if(!ownerUser){show("account");return msg("팀장 로그인 후 모임을 만들 수 있습니다.")}
  show("create");renderMembers();renderCalendar()
 });
 function goHome(){
@@ -195,10 +197,28 @@ function goHome(){
  room=null;roomId="";secret="";links=null;show("start");renderMyRooms();
 }
 $("home-btn").addEventListener("click",goHome);
-$("google-login").addEventListener("click",async()=>{
- try{await loginGoogle()}catch(e){msg(e.code==="auth/popup-closed-by-user"?"로그인이 취소됐습니다.":"구글 로그인에 실패했습니다. Firebase에서 Google 로그인 제공업체를 활성화했는지 확인하세요.")}
+$("google-login").addEventListener("click",()=>show("account"));
+$("google-logout").addEventListener("click",async()=>{await logoutAccount();goHome()});
+function updateAccountMode(register){
+ accountRegister=register;
+ $("auth-login-mode").classList.toggle("selected",!register);
+ $("auth-register-mode").classList.toggle("selected",register);
+ $("account-submit").textContent=register?"회원가입":"로그인";
+ $("account-password").autocomplete=register?"new-password":"current-password";
+ $("account-error").textContent="";
+}
+$("auth-login-mode").addEventListener("click",()=>updateAccountMode(false));
+$("auth-register-mode").addEventListener("click",()=>updateAccountMode(true));
+$("account-submit").addEventListener("click",async()=>{
+ const username=$("account-username").value.trim(),password=$("account-password").value;
+ const button=$("account-submit");$("account-error").textContent="";
+ if(username.length<3||password.length<8){$("account-error").textContent="아이디는 3자 이상, 비밀번호는 8자 이상 입력하세요.";return}
+ button.disabled=true;
+ try{await loginAccount(username,password,accountRegister);$("account-password").value="";goHome()}
+ catch(e){$("account-error").textContent=e.message}finally{button.disabled=false}
 });
-$("google-logout").addEventListener("click",async()=>{await logoutGoogle();goHome()});
+for(const id of ["account-username","account-password"])
+ $(id).addEventListener("keydown",e=>{if(e.key==="Enter")$("account-submit").click()});
 async function importEarlierRooms(){
  const keys=Array.from({length:localStorage.length},(_,i)=>localStorage.key(i)).filter(k=>k?.startsWith("moimo-manager-"));
  for(const key of keys){
@@ -216,7 +236,7 @@ onAuthStateChanged(auth,async user=>{
  ownerUser=user;
  $("google-login").classList.toggle("hidden",!!user);
  $("owner-info").classList.toggle("hidden",!user);
- $("owner-name").textContent=user?.displayName||user?.email||"";
+ $("owner-name").textContent=user?.username||"";
  if(user){await importEarlierRooms();await loadMyRooms()}
  else{ownerRooms=[];renderMyRooms()}
 });
@@ -367,6 +387,7 @@ async function openRoom(){
 }
 async function setup(){
  renderMembers();renderCalendar();setupTimes();show("start");
+ initializeAuth();
  const params=new URLSearchParams(randomHash()),r=params.get("r"),k=params.get("k");
  if(r&&/^[a-zA-Z0-9_-]{12,24}$/.test(r)){
   if(k && /^[a-zA-Z0-9_-]{40,64}$/.test(k)){
