@@ -7,7 +7,7 @@
 <title>모이모 (Moim_O)</title>
 <link rel="stylesheet" href="style.css?v=20261121-no-recovery1">
 <script src="config.js?v=20261121-1"></script>
-<script type="module" src="app.js?v=20261121-no-recovery1"></script>
+<script type="module" src="app.js?v=20261121-owner-and-join1"></script>
 </head>
 <body>
 <main class="app">
@@ -83,7 +83,12 @@
   <input id="title" maxlength="80" placeholder="모임 이름">
  </div>
  <div class="field">
-  <div class="field-head"><label>참석자</label><span id="member-count">4명</span></div>
+  <label for="owner-participant-name">팀장 이름</label>
+  <input id="owner-participant-name" maxlength="30" placeholder="팀장 본인의 이름">
+  <p class="retention-note">모임을 생성한 팀장도 참석자로 포함되며, 본인 일정을 직접 입력할 수 있습니다.</p>
+ </div>
+ <div class="field">
+  <div class="field-head"><label>다른 참석자</label><span id="member-count">4명</span></div>
   <div id="member-inputs" class="member-inputs"></div>
   <button id="add-member" class="add-member" type="button">＋</button>
  </div>
