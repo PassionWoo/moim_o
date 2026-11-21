@@ -4,23 +4,47 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
-<title>Moim_O</title>
-<link rel="stylesheet" href="style.css">
+<title>모이모 (Moim_O)</title>
+<link rel="stylesheet" href="style.css?v=20261121-4">
 <script src="config.js?v=20261121-1"></script>
-<script type="module" src="app.js"></script>
+<script type="module" src="app.js?v=20261121-4"></script>
 </head>
 <body>
 <main class="app">
 <header class="header">
-  <a class="wordmark" href="./">Moim_O</a>
+  <a class="wordmark" href="./">모이모 <small>Moim_O</small></a>
   <button id="home-btn" class="small-button hidden" type="button">나가기</button>
 </header>
 
 <section id="start-view" class="hero">
   <h1>우리 지금 만나!</h1>
   <button id="create-open" class="big-button" type="button">모임 만들기 <span>＋</span></button>
+  <div id="owner-account" class="owner-account">
+   <button id="google-login" class="small-button" type="button">구글 로그인</button>
+   <div id="owner-info" class="hidden account-bar">
+    <span id="owner-name"></span>
+    <button id="google-logout" type="button" class="small-button">로그아웃</button>
+   </div>
+  </div>
+  <section id="saved-meetings" class="saved-meetings hidden">
+   <h2>내 모임</h2>
+   <div id="saved-meetings-list" class="saved-meetings-list"></div>
+  </section>
 </section>
 
+<section id="join-view" class="hidden form">
+ <h1 id="join-room-title">모임 참여</h1>
+ <div class="field">
+   <label for="join-name">이름</label>
+   <select id="join-name"><option value="">이름 선택</option></select>
+ </div>
+ <div class="field">
+   <label for="join-pin">전화번호 끝 4자리</label>
+   <input id="join-pin" type="text" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" placeholder="0000">
+ </div>
+ <button id="join-submit" class="big-button" type="button">입장하기</button>
+ <p id="join-error" class="error" role="alert"></p>
+</section>
 <section id="create-view" class="hidden form">
  <h1>모임 만들기</h1>
  <div class="field">
@@ -90,6 +114,7 @@
  <div id="manager-panel" class="manager-panel hidden">
   <h2>공유 링크</h2>
   <div id="manager-links" class="share-list"></div>
+  <button id="room-delete" class="small-button delete-button" type="button">모임 삭제</button>
  </div>
 </section>
 <div id="toast" class="toast hidden" role="status"></div>
