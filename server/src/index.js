@@ -314,6 +314,7 @@ export class Room extends DurableObject {
     this.sql.exec("CREATE TABLE IF NOT EXISTS catalog_accounts (username TEXT PRIMARY KEY, created_at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS accounts (username TEXT PRIMARY KEY, salt TEXT NOT NULL, password_hash TEXT NOT NULL, created_at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS account_sessions (token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)");
+    this.sql.exec("DROP TABLE IF EXISTS recovery_codes");
     this.sql.exec("CREATE TABLE IF NOT EXISTS deleted_rooms (id INTEGER PRIMARY KEY, at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, participant_id TEXT NOT NULL, expires_at INTEGER NOT NULL)");
     const metaCols=[...this.sql.exec("PRAGMA table_info(meta)")];
