@@ -155,7 +155,7 @@ export default {
       if(!input || !/^[\w-]{12,24}$/.test(input.roomId||"") ||
          !/^[\w-]{40,64}$/.test(input.managerToken||"")) return json({error:"관리 링크를 확인해 주세요."},400,cors);
       const stub=env.ROOMS.get(env.ROOMS.idFromName(input.roomId));
-      const result=await internalRequest(stub,"owner/claim",{uid,managerToken:input.managerToken});
+      const result=await internalRequest(stub,"owner/claim",{uid,managerToken:input.managerToken,roomId:input.roomId});
       if(!result.ok) return corsResponse(result,cors);
       const info=await result.json();
       const entry={roomId:input.roomId, title:info.title, startDate:info.startDate,
@@ -166,13 +166,11 @@ export default {
     }
     const deletion=/^\/api\/rooms\/([\w-]{12,24})$/.exec(url.pathname);
     if (request.method === "DELETE" && deletion) {
-      const uid=await verifiedOwner(request), managerToken=authToken(request);
+      const uid=await verifiedOwner(request,env), managerToken=authToken(request);
       if(!uid && !managerToken) return json({error:"팀장 인증이 필요합니다."},401,cors);
       const stub=env.ROOMS.get(env.ROOMS.idFromName(deletion[1]));
       const result=await internalRequest(stub,"owner/delete",{uid,managerToken});
       if(!result.ok) return corsResponse(result,cors);
-      const data=await result.json();
-      if(data.ownerUid) await internalRequest(accountStub(env,data.ownerUid),"account/remove",{roomId:deletion[1]});
       return json({ok:true},200,cors);
     }
 
@@ -254,11 +252,6 @@ export class Room extends DurableObject {
   }
   async destroyRoom(m) {
     for(const ws of this.ctx.getWebSockets())try{ws.close(4002,"모임 만료 또는 삭제")}catch{}
-    this.sql.exec("DELETE FROM people");
-    this.sql.exec("DELETE FROM sessions");
-    this.sql.exec("DELETE FROM limits");
-    this.sql.exec("DELETE FROM meta");
-    this.sql.exec("INSERT OR REPLACE INTO deleted_rooms(id,at) VALUES(1,?)",Date.now());
     if(m.owner_uid){
       try{
         const identifier=JSON.parse(m.config).roomId;
@@ -266,6 +259,8 @@ export class Room extends DurableObject {
       }catch{}
     }
     await this.ctx.storage.deleteAlarm();
+    // Clear the complete SQLite-backed Durable Object storage, not just hide the room.
+    await this.ctx.storage.deleteAll();
   }
   async alarm() {
     const m=this.meta();
@@ -370,6 +365,10 @@ export class Room extends DurableObject {
       if(m.owner_uid && m.owner_uid!==b.uid && m.owner_uid.startsWith("acct:")) return fail("다른 계정에 연결된 모임입니다.",403);
       if(m.owner_uid!==b.uid)this.sql.exec("UPDATE meta SET owner_uid=? WHERE id=1",b.uid);
       const cfg=JSON.parse(m.config);
+      if(!cfg.roomId && b.roomId){
+        cfg.roomId=b.roomId;
+        this.sql.exec("UPDATE meta SET config=? WHERE id=1",JSON.stringify(cfg));
+      }
       return json({ok:true,title:cfg.title,startDate:cfg.dates[0],endDate:cfg.dates.at(-1),expiresAt:m.expires_at||Date.now()+ROOM_LIFETIME_MS});
     }
     if (path === "/owner/delete" && request.method === "POST") {
