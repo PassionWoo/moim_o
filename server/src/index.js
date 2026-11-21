@@ -312,8 +312,11 @@ export class Room extends DurableObject {
     this.sql.exec("CREATE TABLE IF NOT EXISTS people (id TEXT PRIMARY KEY, name TEXT NOT NULL, token_hash TEXT NOT NULL, slots TEXT NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS limits (key TEXT PRIMARY KEY, window INTEGER NOT NULL, hits INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS user_rooms (room_id TEXT PRIMARY KEY, details TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS catalog_rooms (room_id TEXT PRIMARY KEY, details TEXT NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS catalog_accounts (username TEXT PRIMARY KEY, created_at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS accounts (username TEXT PRIMARY KEY, salt TEXT NOT NULL, password_hash TEXT NOT NULL, created_at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS account_sessions (token_hash TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)");
+    this.sql.exec("CREATE TABLE IF NOT EXISTS recovery_codes (code_hash TEXT PRIMARY KEY, issued_at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS deleted_rooms (id INTEGER PRIMARY KEY, at INTEGER NOT NULL)");
     this.sql.exec("CREATE TABLE IF NOT EXISTS sessions (token_hash TEXT PRIMARY KEY, participant_id TEXT NOT NULL, expires_at INTEGER NOT NULL)");
     const metaCols=[...this.sql.exec("PRAGMA table_info(meta)")];
@@ -386,6 +389,116 @@ export class Room extends DurableObject {
   async fetch(request) {
     const path = new URL(request.url).pathname;
 
+
+
+    if(path==="/catalog/rooms"&&request.method==="GET"){
+      const rows=[...this.sql.exec("SELECT details FROM catalog_rooms ORDER BY rowid DESC")].map(x=>JSON.parse(x.details));
+      const rooms=rows.filter(r=>!r.expiresAt||r.expiresAt>Date.now());
+      for(const r of rows)if(r.expiresAt&&r.expiresAt<=Date.now())
+        this.sql.exec("DELETE FROM catalog_rooms WHERE room_id=?",r.roomId);
+      return json({rooms,total:rooms.length});
+    }
+    if(path==="/catalog/accounts"&&request.method==="GET"){
+      const accounts=[...this.sql.exec("SELECT username,created_at FROM catalog_accounts ORDER BY created_at DESC")]
+        .map(r=>({username:r.username,createdAt:r.created_at}));
+      return json({accounts,total:accounts.length});
+    }
+    if(path==="/catalog/room-add"&&request.method==="POST"){
+      const b=await parseBody(request);
+      if(!/^[\w-]{12,24}$/.test(b?.roomId||"")||!usernameOf(b?.owner))return fail("잘못된 모임");
+      const entry={roomId:b.roomId,owner:b.owner,title:cleanName(b.title,80),
+        startDate:b.startDate,endDate:b.endDate,expiresAt:b.expiresAt,
+        participantCount:Number(b.participantCount)||0};
+      this.sql.exec("INSERT INTO catalog_rooms(room_id,details) VALUES(?,?) ON CONFLICT(room_id) DO UPDATE SET details=excluded.details",
+        b.roomId,JSON.stringify(entry));
+      return json({ok:true});
+    }
+    if(path==="/catalog/room-remove"&&request.method==="POST"){
+      const b=await parseBody(request);
+      if(!/^[\w-]{12,24}$/.test(b?.roomId||""))return fail("잘못된 모임");
+      this.sql.exec("DELETE FROM catalog_rooms WHERE room_id=?",b.roomId);
+      return json({ok:true});
+    }
+    if(path==="/catalog/account-add"&&request.method==="POST"){
+      const b=await parseBody(request),username=usernameOf(b?.username);
+      if(!username)return fail("잘못된 계정");
+      this.sql.exec("INSERT OR IGNORE INTO catalog_accounts(username,created_at) VALUES(?,?)",username,Date.now());
+      return json({ok:true});
+    }
+    if(path==="/catalog/account-remove"&&request.method==="POST"){
+      const b=await parseBody(request),username=usernameOf(b?.username);
+      if(!username)return fail("잘못된 계정");
+      this.sql.exec("DELETE FROM catalog_accounts WHERE username=?",username);
+      return json({ok:true});
+    }
+    if(path==="/account/admin-status"&&request.method==="GET"){
+      const row=[...this.sql.exec("SELECT username,created_at FROM accounts LIMIT 1")][0];
+      return row?json({username:row.username,createdAt:row.created_at}):fail("계정을 찾을 수 없습니다.",404);
+    }
+    if(path==="/account/recovery/rotate"&&request.method==="POST" ||
+       path==="/account/admin-reset-code"&&request.method==="POST"){
+      const row=[...this.sql.exec("SELECT username FROM accounts LIMIT 1")][0];
+      if(!row)return fail("계정을 찾을 수 없습니다.",404);
+      const code=token(),combined="MOIMO:"+row.username+":"+code;
+      this.sql.exec("DELETE FROM recovery_codes");
+      this.sql.exec("INSERT INTO recovery_codes(code_hash,issued_at) VALUES(?,?)",await hash(combined),Date.now());
+      return json({recoveryCode:combined,username:row.username});
+    }
+    if(path==="/account/recover"&&request.method==="POST"){
+      const b=await parseBody(request);
+      const username=recoveryUsername(b?.recoveryCode);
+      if(!username||!passwordAllowed(b?.newPassword))return fail("복구 코드 또는 비밀번호를 확인하세요.",400);
+      const row=[...this.sql.exec("SELECT username FROM accounts LIMIT 1")][0];
+      if(!row||row.username!==username)return fail("복구 정보를 확인하세요.",401);
+      const code=[...this.sql.exec("SELECT issued_at FROM recovery_codes WHERE code_hash=?",await hash(b.recoveryCode))][0];
+      if(!code)return fail("복구 코드를 확인하세요.",401);
+      const salt=token(),digest=await passwordHash(b.newPassword,salt);
+      this.sql.exec("UPDATE accounts SET salt=?,password_hash=? WHERE username=?",salt,digest,username);
+      this.sql.exec("DELETE FROM recovery_codes");
+      this.sql.exec("DELETE FROM account_sessions");
+      return json({ok:true});
+    }
+    if(path==="/account/password"&&request.method==="POST"){
+      const b=await parseBody(request),row=[...this.sql.exec("SELECT username,salt,password_hash FROM accounts LIMIT 1")][0];
+      if(!row||!passwordAllowed(b?.currentPassword)||!passwordAllowed(b?.newPassword))
+        return fail("비밀번호를 확인하세요.",400);
+      if(await passwordHash(b.currentPassword,row.salt)!==row.password_hash)
+        return fail("기존 비밀번호가 일치하지 않습니다.",403);
+      const salt=token(),digest=await passwordHash(b.newPassword,salt);
+      this.sql.exec("UPDATE accounts SET salt=?,password_hash=? WHERE username=?",salt,digest,row.username);
+      this.sql.exec("DELETE FROM recovery_codes");
+      this.sql.exec("DELETE FROM account_sessions");
+      return json({ok:true});
+    }
+    if(path==="/account/begin-delete"&&request.method==="POST"){
+      const row=[...this.sql.exec("SELECT username FROM accounts LIMIT 1")][0];
+      if(!row)return fail("계정을 찾을 수 없습니다.",404);
+      const rooms=[...this.sql.exec("SELECT details FROM user_rooms")].map(x=>JSON.parse(x.details));
+      return json({username:row.username,rooms});
+    }
+    if(path==="/account/final-delete"&&request.method==="POST"){
+      const row=[...this.sql.exec("SELECT username FROM accounts LIMIT 1")][0];
+      if(!row)return fail("계정 없음",404);
+      this.sql.exec("DELETE FROM accounts");
+      this.sql.exec("DELETE FROM account_sessions");
+      this.sql.exec("DELETE FROM recovery_codes");
+      this.sql.exec("DELETE FROM user_rooms");
+      return json({ok:true});
+    }
+    if(path==="/admin/room"&&request.method==="POST"){
+      if(await this.expireIfNeeded()||!this.meta())return fail("모임을 찾을 수 없습니다.",404);
+      const m=this.meta(),cfg=JSON.parse(m.config);
+      return json({roomId:cfg.roomId||null,title:cfg.title,owner:(m.owner_uid||"").replace(/^acct:/,""),
+        startDate:cfg.dates[0],endDate:cfg.dates.at(-1),expiresAt:m.expires_at||null,
+        participants:this.people().map(p=>({name:p.name,slots:JSON.parse(p.slots)}))});
+    }
+    if(path==="/admin/delete"&&request.method==="POST"){
+      const b=await parseBody(request),m=this.meta();
+      if(!m)return fail("모임을 찾을 수 없습니다.",404);
+      if(b?.expectedOwner&&m.owner_uid!==b.expectedOwner)return fail("다른 팀장이 소유한 모임입니다.",403);
+      await this.destroyRoom(m);
+      return json({ok:true});
+    }
 
     if(path === "/account/register" && request.method === "POST"){
       const b=await parseBody(request);
