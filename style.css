@@ -99,3 +99,30 @@ input{width:100%}
  .share-row strong{font-size:19px}
 }
 @media(max-width:370px){.calendar-day{font-size:16px}.schedule thead th:first-child{width:110px}}
+
+/* Moim_O account and PIN entry: retain the original minimal layout. */
+.wordmark{display:inline-flex;align-items:baseline;gap:10px;white-space:nowrap}
+.wordmark small{font-size:17px;font-weight:700;letter-spacing:0;color:#9aa5b3}
+.owner-account{margin:16px auto 0;text-align:center}
+.owner-account .small-button{min-width:165px}
+.account-bar{display:flex;align-items:center;justify-content:center;gap:14px;flex-wrap:wrap;font-size:18px}
+.saved-meetings{margin:52px auto 0;max-width:670px;text-align:left}
+.saved-meetings h2{font-size:25px;margin-bottom:16px}
+.saved-meetings-list{display:flex;flex-direction:column;gap:10px}
+.saved-room{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:10px}
+.saved-room-open{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;align-items:flex-start;text-align:left;background:transparent;border:0;padding:8px 10px}
+.saved-room-open strong{font-size:23px;word-break:break-word}
+.saved-room-open span{font-size:16px;color:#737a80}
+.pin-input{flex:0 0 165px!important;width:165px!important;text-align:center;font-variant-numeric:tabular-nums}
+.delete-button{color:#bb3838;border-color:#eac8c8}
+#join-name{width:100%}
+@media(max-width:800px){
+ .wordmark small{font-size:15px}
+ .member-row{gap:6px}
+ .member-row input{font-size:18px;min-height:58px;padding:8px}
+ .pin-input{width:122px!important;flex-basis:122px!important}
+ .member-remove{flex-basis:46px;height:58px;font-size:23px}
+ .saved-meetings{margin-top:36px}
+ .saved-room-open strong{font-size:20px}
+}
+@media(max-width:370px){.pin-input{width:105px!important;flex-basis:105px!important}.member-row input{font-size:16px}}
