@@ -521,9 +521,10 @@ export class Room extends DurableObject {
       if([...this.sql.exec("SELECT username FROM accounts LIMIT 1")].length)return fail("이미 사용 중인 아이디입니다.",409);
       const salt=token(),digest=await passwordHash(b.password,salt);
       this.sql.exec("INSERT INTO accounts(username,salt,password_hash,created_at) VALUES(?,?,?,?)",b.username,salt,digest,Date.now());
-      const session=token();
+      const session=token(),recoveryCode="MOIMO:"+b.username+":"+token();
       this.sql.exec("INSERT INTO account_sessions(token_hash,expires_at) VALUES(?,?)",await hash(session),Date.now()+30*86400000);
-      return json({username:b.username,session},201);
+      this.sql.exec("INSERT INTO recovery_codes(code_hash,issued_at) VALUES(?,?)",await hash(recoveryCode),Date.now());
+      return json({username:b.username,session,recoveryCode},201);
     }
     if(path === "/account/login" && request.method === "POST"){
       const b=await parseBody(request), bucket=Math.floor(Date.now()/900000),k="failed-logins";
