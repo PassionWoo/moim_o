@@ -84,7 +84,7 @@ function configFromForm(){
  const value=Number($("unit").value),unitMinutes=$("unit-type").value==="hours"?value*60:value;
  const startTime=$("time-from").value,endTime=$("time-to").value;
  if(!title){error("모임 이름을 입력하세요.");return null}
- if(participants.some(p=>!p.name||!/^\\d{4}$/.test(p.pin))||new Set(participants.map(p=>p.name)).size!==participants.length){error("참석자 이름과 번호 4자리를 확인하세요.");return null}
+ if(participants.some(p=>!p.name||!/^\d{4}$/.test(p.pin))||new Set(participants.map(p=>p.name)).size!==participants.length){error("참석자 이름과 번호 4자리를 확인하세요.");return null}
  if(!rangeStart||!rangeEnd){error("시작 날짜와 종료 날짜를 선택하세요.");return null}
  const dayCount=Math.round((fromISO(rangeEnd)-fromISO(rangeStart))/86400000)+1;
  if(dayCount>31){error("날짜는 최대 31일까지 선택할 수 있습니다.");return null}
@@ -176,7 +176,7 @@ $("join-pin").addEventListener("input",e=>{e.target.value=e.target.value.replace
 $("join-submit").addEventListener("click",async()=>{
  const name=$("join-name").value,pin=$("join-pin").value;
  $("join-error").textContent="";
- if(!name||!/^\\d{4}$/.test(pin))return $("join-error").textContent="이름과 번호 4자리를 확인하세요.";
+ if(!name||!/^\d{4}$/.test(pin))return $("join-error").textContent="이름과 번호 4자리를 확인하세요.";
  const button=$("join-submit");button.disabled=true;
  try{
   const answer=await request("/api/rooms/"+roomId+"/join",{method:"POST",data:{name,pin},key:null});
