@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#ffffff">
 <title>모이모 (Moim_O)</title>
-<link rel="stylesheet" href="style.css?v=20261121-admin1">
+<link rel="stylesheet" href="style.css?v=20261121-final-recovery2">
 <script src="config.js?v=20261121-1"></script>
-<script type="module" src="app.js?v=20261121-admin1"></script>
+<script type="module" src="app.js?v=20261121-final-recovery2"></script>
 </head>
 <body>
 <main class="app">
@@ -21,7 +21,6 @@
   <button id="create-open" class="big-button" type="button">모임 만들기 <span>＋</span></button>
   <div id="owner-account" class="owner-account">
    <button id="google-login" class="small-button" type="button">팀장 로그인 · 회원가입</button>
-   <button id="admin-open" class="small-button" type="button">서비스 관리자</button>
    <div id="owner-info" class="hidden account-bar">
     <span id="owner-name"></span>
     <button id="google-logout" type="button" class="small-button">로그아웃</button>
@@ -45,11 +44,19 @@
   <input id="account-password" type="password" minlength="8" maxlength="128" autocomplete="current-password" placeholder="8자 이상"></div>
  <button id="account-submit" class="big-button" type="button">로그인</button>
  <p id="account-error" class="error" role="alert"></p>
- <div class="account-recovery-entry"><button id="account-recover-open" class="small-button" type="button">아이디·비밀번호 찾기</button></div>
+ <div class="account-recovery-entry"><button id="account-recover-open" class="small-button" type="button">복구 코드로 비밀번호 재설정</button></div>
+</section>
+<section id="recovery-issued-view" class="hidden form">
+ <h1>계정 복구 코드 발급 완료</h1>
+ <p class="subhead">회원가입 시 자동 발급된 복구 코드입니다. 비밀번호를 잊어버리면 이 코드로 직접 재설정할 수 있습니다. 안전한 곳에 복사하여 보관하세요.</p>
+ <div class="field"><label for="issued-recovery-code">내 복구 코드</label>
+  <textarea id="issued-recovery-code" rows="3" readonly spellcheck="false"></textarea></div>
+ <button id="recovery-copy" class="big-button" type="button">복구 코드 복사하기</button>
+ <button id="recovery-confirm" class="small-button" type="button">복구 코드를 보관했습니다 · 시작하기</button>
 </section>
 <section id="recover-view" class="hidden form">
  <h1>계정 찾기 · 비밀번호 재설정</h1>
- <p class="subhead">회원가입 시 발급받은 복구 코드를 입력하세요. 아이디는 복구 코드에 포함되어 있습니다.</p>
+ <p class="subhead">복구 코드는 로그인 비밀번호가 아닙니다. 본인이 보관한 복구 코드를 입력해 새 비밀번호를 설정하세요. 별도의 본인 확인 과정은 없습니다.</p>
  <div class="field"><label for="recovery-code">복구 코드</label>
   <input id="recovery-code" autocomplete="off" placeholder="MOIMO:아이디:복구키"></div>
  <div class="field"><label for="recovery-password">새 비밀번호 (8자 이상)</label>
